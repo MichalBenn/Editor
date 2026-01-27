@@ -1,0 +1,12 @@
+# OS files
+.DS_Store
+Thumbs.db
+
+# Console logs (debug files)
+console/
+
+# Snapshots (development backups)
+snapshots/
+
+# Models folder (user data)
+models/

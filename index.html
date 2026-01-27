@@ -1,0 +1,1874 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EditVoxel - Sub-Voxel Editor</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            overflow: hidden;
+            background: #1a1a2e;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+
+        #canvas-container {
+            width: 100vw;
+            height: 100vh;
+        }
+
+        #info {
+            position: absolute;
+            top: 50%;
+            left: 20px;
+            transform: translateY(-50%);
+            color: #fff;
+            font-size: 16px;
+            font-weight: 500;
+            z-index: 150;
+        }
+
+        .control-row {
+            display: flex;
+            align-items: center;
+            margin: 12px 0;
+        }
+
+        .key-icon {
+            background: rgba(255, 255, 255, 0.2);
+            border-radius: 6px;
+            padding: 8px 12px;
+            margin-right: 12px;
+            font-size: 14px;
+            font-weight: 600;
+            min-width: 40px;
+            text-align: center;
+            backdrop-filter: blur(4px);
+        }
+
+        .key-icon.mouse {
+            font-size: 18px;
+        }
+
+        .control-label {
+            font-size: 16px;
+            font-weight: 500;
+            text-shadow: 0 1px 3px rgba(0,0,0,0.3);
+        }
+
+        .toggle-row {
+            cursor: pointer;
+            opacity: 0.7;
+            transition: opacity 0.2s;
+        }
+
+        .toggle-row:hover {
+            opacity: 1;
+        }
+
+        #fillExtrudeStatus {
+            font-weight: 600;
+            transition: color 0.2s;
+        }
+
+        .controls-advanced {
+            display: none;
+        }
+
+        #info.expanded .controls-advanced {
+            display: block;
+        }
+
+        #info.expanded #showMoreBtn {
+            display: none;
+        }
+
+        /* Bottom Right Controls Container */
+        .bottom-right-controls {
+            position: absolute;
+            bottom: 20px;
+            right: 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: flex-end;
+            gap: 10px;
+            z-index: 150;
+        }
+
+        /* Music Player */
+        #musicPlayer {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            background: rgba(255, 255, 255, 0.95);
+            padding: 8px 12px 8px 16px;
+            border-radius: 25px;
+            box-shadow: 0 2px 12px rgba(0, 0, 0, 0.15);
+        }
+
+        #musicPlayer select {
+            border: none;
+            background: transparent;
+            font-size: 14px;
+            font-weight: 500;
+            color: #333;
+            cursor: pointer;
+            outline: none;
+            padding-right: 20px;
+            -webkit-appearance: none;
+            appearance: none;
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23666' d='M3 4.5L6 8l3-3.5H3z'/%3E%3C/svg%3E");
+            background-repeat: no-repeat;
+            background-position: right 0 center;
+            min-width: 140px;
+        }
+
+        #musicPlayer select:hover {
+            color: #000;
+        }
+
+        #playBtn {
+            width: 42px;
+            height: 42px;
+            border-radius: 50%;
+            border: none;
+            background: #4ecdc4;
+            color: #fff;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: transform 0.15s, background 0.15s;
+            box-shadow: 0 2px 8px rgba(78, 205, 196, 0.4);
+        }
+
+        #playBtn:hover {
+            transform: scale(1.08);
+            background: #5fd9d0;
+        }
+
+        #playBtn:active {
+            transform: scale(0.98);
+        }
+
+        #playBtn svg {
+            width: 20px;
+            height: 20px;
+            fill: currentColor;
+        }
+
+        #playBtn.playing svg.play-icon {
+            display: none;
+        }
+
+        #playBtn:not(.playing) svg.pause-icon {
+            display: none;
+        }
+
+        /* Gallery Button - White Style */
+        #galleryBtn {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            background: rgba(255, 255, 255, 0.95);
+            padding: 8px 12px 8px 16px;
+            border-radius: 25px;
+            box-shadow: 0 2px 12px rgba(0, 0, 0, 0.15);
+            border: none;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 500;
+            color: #333;
+            transition: transform 0.15s;
+        }
+
+        #galleryBtn:hover {
+            transform: scale(1.02);
+        }
+
+        #galleryBtn .badge {
+            background: #4ecdc4;
+            color: #fff;
+            padding: 4px 10px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: 600;
+        }
+
+        /* ========================================
+           UNIFIED PANEL/MODAL DESIGN SYSTEM
+           ======================================== */
+
+        /* Base panel style - shared by all panels and modals */
+        .ui-panel {
+            color: #fff;
+            background: rgba(26, 26, 46, 0.95);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border-radius: 16px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4),
+                        inset 0 1px 0 rgba(255, 255, 255, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+        }
+
+        /* Panel header style */
+        .ui-panel-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 16px 20px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+        }
+
+        .ui-panel-header h3 {
+            margin: 0;
+            color: #fff;
+            font-size: 14px;
+            font-weight: 600;
+            letter-spacing: 0.3px;
+        }
+
+        .ui-panel-header .panel-icon {
+            color: #4ecdc4;
+            margin-right: 8px;
+        }
+
+        /* Panel close button */
+        .ui-panel-close {
+            width: 28px;
+            height: 28px;
+            border-radius: 8px;
+            border: none;
+            background: rgba(255, 255, 255, 0.08);
+            color: #888;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.2s;
+            font-size: 16px;
+        }
+
+        .ui-panel-close:hover {
+            background: rgba(255, 255, 255, 0.15);
+            color: #fff;
+        }
+
+        /* Panel content area */
+        .ui-panel-content {
+            padding: 16px 20px;
+        }
+
+        /* Panel scrollbar styling */
+        .ui-panel::-webkit-scrollbar {
+            width: 6px;
+        }
+
+        .ui-panel::-webkit-scrollbar-track {
+            background: transparent;
+        }
+
+        .ui-panel::-webkit-scrollbar-thumb {
+            background: rgba(78, 205, 196, 0.3);
+            border-radius: 3px;
+        }
+
+        .ui-panel::-webkit-scrollbar-thumb:hover {
+            background: rgba(78, 205, 196, 0.5);
+        }
+
+        /* Unified button styles */
+        .ui-btn {
+            padding: 12px 16px;
+            border: none;
+            border-radius: 10px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 500;
+            transition: all 0.2s ease;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .ui-btn-primary {
+            background: #4ecdc4;
+            color: #1a1a2e;
+        }
+
+        .ui-btn-primary:hover {
+            background: #5fded5;
+            transform: translateY(-1px);
+        }
+
+        .ui-btn-secondary {
+            background: rgba(255, 255, 255, 0.1);
+            color: #fff;
+        }
+
+        .ui-btn-secondary:hover {
+            background: rgba(255, 255, 255, 0.15);
+        }
+
+        .ui-btn-ghost {
+            background: transparent;
+            color: #888;
+            border: 1px solid rgba(255, 255, 255, 0.15);
+        }
+
+        .ui-btn-ghost:hover {
+            background: rgba(255, 255, 255, 0.05);
+            color: #aaa;
+            border-color: rgba(255, 255, 255, 0.25);
+        }
+
+        .ui-btn small {
+            display: block;
+            font-weight: normal;
+            opacity: 0.7;
+            margin-top: 4px;
+            font-size: 12px;
+        }
+
+        /* Unified form inputs */
+        .ui-input, .ui-select, .ui-textarea {
+            width: 100%;
+            padding: 10px 12px;
+            border-radius: 8px;
+            background: rgba(0, 0, 0, 0.3);
+            color: #fff;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            font-size: 13px;
+            font-family: inherit;
+            transition: border-color 0.2s, box-shadow 0.2s;
+        }
+
+        .ui-input:focus, .ui-select:focus, .ui-textarea:focus {
+            outline: none;
+            border-color: #4ecdc4;
+            box-shadow: 0 0 0 3px rgba(78, 205, 196, 0.15);
+        }
+
+        .ui-input::placeholder, .ui-textarea::placeholder {
+            color: #666;
+        }
+
+        .ui-textarea {
+            resize: vertical;
+            min-height: 80px;
+        }
+
+        .ui-label {
+            display: block;
+            color: #888;
+            font-size: 11px;
+            font-weight: 500;
+            margin-bottom: 6px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .ui-form-group {
+            margin-bottom: 14px;
+        }
+
+        .ui-form-group:last-child {
+            margin-bottom: 0;
+        }
+
+        .ui-form-hint {
+            display: block;
+            color: #666;
+            font-size: 11px;
+            margin-top: 4px;
+        }
+
+        .ui-form-hint a {
+            color: #4ecdc4;
+            text-decoration: none;
+        }
+
+        .ui-form-hint a:hover {
+            text-decoration: underline;
+        }
+
+        /* Divider */
+        .ui-divider {
+            height: 1px;
+            background: rgba(255, 255, 255, 0.08);
+            margin: 16px 0;
+        }
+
+        /* Section title */
+        .ui-section-title {
+            color: #666;
+            font-size: 10px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-bottom: 12px;
+            font-weight: 600;
+        }
+
+        /* ========================================
+           SETTINGS PANEL (top-right)
+           ======================================== */
+        #settings {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            min-width: 220px;
+            max-height: calc(100vh - 40px);
+            overflow-y: auto;
+            z-index: 150;
+            font-size: 12px;
+        }
+
+        #settings .ui-panel-header {
+            cursor: pointer;
+            user-select: none;
+            padding: 14px 16px;
+        }
+
+        #settings .ui-panel-header::after {
+            content: '▼';
+            font-size: 10px;
+            color: #666;
+            transition: transform 0.2s;
+        }
+
+        #settings.collapsed .ui-panel-header::after {
+            transform: rotate(-90deg);
+        }
+
+        #settings.collapsed .ui-panel-content {
+            display: none;
+        }
+
+        #settings .ui-panel-content {
+            padding: 14px 16px;
+        }
+
+        /* Settings panel specific form groups */
+        .setting-group {
+            margin-bottom: 12px;
+        }
+
+        .setting-group label {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 6px;
+            color: #888;
+            font-size: 11px;
+            font-weight: 500;
+            text-transform: uppercase;
+            letter-spacing: 0.3px;
+        }
+
+        .setting-group input[type="range"] {
+            width: 100%;
+            cursor: pointer;
+            height: 4px;
+            -webkit-appearance: none;
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 2px;
+            outline: none;
+        }
+
+        .setting-group input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            width: 14px;
+            height: 14px;
+            background: #4ecdc4;
+            border-radius: 50%;
+            cursor: pointer;
+            box-shadow: 0 2px 6px rgba(78, 205, 196, 0.4);
+            transition: transform 0.15s, background 0.15s;
+        }
+
+        .setting-group input[type="range"]::-webkit-slider-thumb:hover {
+            background: #5fd9d0;
+            transform: scale(1.15);
+        }
+
+        .setting-group .value {
+            color: #4ecdc4;
+            font-size: 11px;
+            font-weight: 600;
+        }
+
+        .setting-group select {
+            width: 100%;
+            padding: 8px 10px;
+            border-radius: 8px;
+            background: rgba(0, 0, 0, 0.3);
+            color: #fff;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            font-size: 12px;
+            cursor: pointer;
+            transition: border-color 0.2s;
+        }
+
+        .setting-group select:focus {
+            outline: none;
+            border-color: #4ecdc4;
+        }
+
+        .setting-group input[type="color"] {
+            width: 100%;
+            height: 28px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 8px;
+            cursor: pointer;
+            background: rgba(0, 0, 0, 0.3);
+            padding: 3px;
+        }
+
+        .setting-group input[type="color"]::-webkit-color-swatch-wrapper {
+            padding: 0;
+        }
+
+        .setting-group input[type="color"]::-webkit-color-swatch {
+            border: none;
+            border-radius: 5px;
+        }
+
+        .setting-group input[type="password"] {
+            width: 100%;
+            padding: 8px 10px;
+            border-radius: 8px;
+            background: rgba(0, 0, 0, 0.3);
+            color: #fff;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            font-size: 12px;
+            transition: border-color 0.2s, box-shadow 0.2s;
+        }
+
+        .setting-group input[type="password"]:focus {
+            outline: none;
+            border-color: #4ecdc4;
+            box-shadow: 0 0 0 3px rgba(78, 205, 196, 0.15);
+        }
+
+        .setting-group input[type="password"]::placeholder {
+            color: #666;
+        }
+
+        .setting-group small {
+            display: block;
+            margin-top: 4px;
+            color: #666;
+            font-size: 10px;
+        }
+
+        .setting-group small a {
+            color: #4ecdc4;
+            text-decoration: none;
+        }
+
+        .setting-group small a:hover {
+            text-decoration: underline;
+        }
+
+        .settings-divider {
+            height: 1px;
+            background: rgba(255, 255, 255, 0.08);
+            margin: 14px 0;
+        }
+
+        .settings-section-title {
+            color: #666;
+            font-size: 10px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-bottom: 10px;
+            font-weight: 600;
+        }
+
+        /* ========================================
+           MODAL OVERLAY SYSTEM
+           ======================================== */
+        .modal-overlay {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.6);
+            backdrop-filter: blur(4px);
+            -webkit-backdrop-filter: blur(4px);
+            z-index: 1000;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .modal-overlay.visible {
+            display: flex;
+        }
+
+        .modal-overlay.transparent-bg {
+            background: transparent;
+            backdrop-filter: none;
+            -webkit-backdrop-filter: none;
+            pointer-events: none;
+        }
+
+        .modal-overlay.transparent-bg .modal-dialog {
+            pointer-events: auto;
+        }
+
+        /* Modal dialog - extends ui-panel */
+        .modal-dialog {
+            color: #fff;
+            background: rgba(26, 26, 46, 0.95);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border-radius: 16px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4),
+                        inset 0 1px 0 rgba(255, 255, 255, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            padding: 24px;
+            max-width: 400px;
+            width: 90vw;
+            animation: modalSlideIn 0.2s ease-out;
+        }
+
+        @keyframes modalSlideIn {
+            from {
+                opacity: 0;
+                transform: translateY(-10px) scale(0.98);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0) scale(1);
+            }
+        }
+
+        .modal-dialog h2 {
+            margin: 0 0 8px 0;
+            color: #fff;
+            font-size: 18px;
+            font-weight: 600;
+        }
+
+        .modal-dialog p {
+            margin: 0 0 20px 0;
+            color: #888;
+            font-size: 14px;
+            line-height: 1.5;
+        }
+
+        .modal-buttons {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        /* Modal buttons use unified button styles */
+        .modal-btn {
+            padding: 14px 18px;
+            border: none;
+            border-radius: 10px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 500;
+            transition: all 0.2s ease;
+            text-align: left;
+        }
+
+        .modal-btn-primary {
+            background: #4ecdc4;
+            color: #1a1a2e;
+        }
+
+        .modal-btn-primary:hover {
+            background: #5fded5;
+            transform: translateY(-1px);
+        }
+
+        .modal-btn-secondary {
+            background: rgba(255, 255, 255, 0.1);
+            color: #fff;
+        }
+
+        .modal-btn-secondary:hover {
+            background: rgba(255, 255, 255, 0.15);
+        }
+
+        .modal-btn-cancel {
+            background: transparent;
+            color: #888;
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            margin-top: 5px;
+        }
+
+        .modal-btn-cancel:hover {
+            background: rgba(255, 255, 255, 0.05);
+            color: #aaa;
+            border-color: rgba(255, 255, 255, 0.25);
+        }
+
+        .modal-btn small {
+            display: block;
+            font-weight: normal;
+            opacity: 0.7;
+            margin-top: 4px;
+            font-size: 12px;
+        }
+
+        /* ========================================
+           GENERATE DIALOG (bottom-centered)
+           ======================================== */
+        .generate-dialog {
+            max-width: 440px;
+            width: 90vw;
+            position: fixed;
+            bottom: 60px;
+            left: 50%;
+            transform: translateX(-50%);
+            top: auto;
+            padding: 20px;
+            animation: generateDialogSlideIn 0.2s ease-out;
+        }
+
+        @keyframes generateDialogSlideIn {
+            from {
+                opacity: 0;
+                transform: translateX(-50%) translateY(10px) scale(0.98);
+            }
+            to {
+                opacity: 1;
+                transform: translateX(-50%) translateY(0) scale(1);
+            }
+        }
+
+        /* Frame overlay for capture bounds */
+        #captureFrame {
+            position: fixed;
+            pointer-events: none;
+            z-index: 100;
+            display: none;
+        }
+
+        #captureFrame.visible {
+            display: block;
+        }
+
+        #captureFrame .frame-border {
+            position: absolute;
+            border: 3px dashed rgba(78, 205, 196, 0.8);
+            border-radius: 8px;
+            box-shadow: 0 0 20px rgba(78, 205, 196, 0.3), inset 0 0 60px rgba(0,0,0,0.1);
+            pointer-events: none;
+        }
+
+        #captureFrame .frame-corner {
+            position: absolute;
+            width: 20px;
+            height: 20px;
+            border: 3px solid #4ecdc4;
+        }
+
+        #captureFrame .frame-corner.tl { top: -3px; left: -3px; border-right: none; border-bottom: none; }
+        #captureFrame .frame-corner.tr { top: -3px; right: -3px; border-left: none; border-bottom: none; }
+        #captureFrame .frame-corner.bl { bottom: -3px; left: -3px; border-right: none; border-top: none; }
+        #captureFrame .frame-corner.br { bottom: -3px; right: -3px; border-left: none; border-top: none; }
+
+        /* Resize handles - capsule shaped, positioned via JS */
+        #captureFrame .resize-handle {
+            position: fixed;
+            background: #fff;
+            pointer-events: auto;
+            z-index: 1000;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
+            transition: transform 0.15s ease, background 0.15s ease;
+        }
+
+        #captureFrame .resize-handle:hover {
+            background: #4ecdc4;
+        }
+
+        #captureFrame .resize-handle:active {
+            background: #5fd9d0;
+        }
+
+        /* Top handle - horizontal capsule for vertical resize */
+        #captureFrame .resize-handle[data-handle="top"] {
+            width: 50px;
+            height: 12px;
+            border-radius: 6px;
+            cursor: ns-resize;
+            transform: translate(-50%, -50%);
+        }
+
+        #captureFrame .resize-handle[data-handle="top"]:hover {
+            transform: translate(-50%, -50%) scaleY(1.3);
+        }
+
+        /* Right handle - vertical capsule for horizontal resize */
+        #captureFrame .resize-handle[data-handle="right"] {
+            width: 12px;
+            height: 50px;
+            border-radius: 6px;
+            cursor: ew-resize;
+            transform: translate(-50%, -50%);
+        }
+
+        #captureFrame .resize-handle[data-handle="right"]:hover {
+            transform: translate(-50%, -50%) scaleX(1.3);
+        }
+
+        #captureFrame .frame-label {
+            position: absolute;
+            top: -28px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(78, 205, 196, 0.9);
+            color: #1a1a2e;
+            padding: 4px 12px;
+            border-radius: 4px;
+            font-size: 12px;
+            font-weight: 600;
+            white-space: nowrap;
+        }
+
+        /* Dim areas outside frame */
+        #captureFrame .dim-overlay {
+            position: fixed;
+            background: rgba(0, 0, 0, 0.4);
+            pointer-events: none;
+        }
+
+        /* Generate dialog form elements */
+        .generate-dialog textarea {
+            width: 100%;
+            padding: 12px 14px;
+            border-radius: 10px;
+            background: rgba(0, 0, 0, 0.3);
+            color: #fff;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            font-family: inherit;
+            font-size: 14px;
+            resize: vertical;
+            transition: border-color 0.2s, box-shadow 0.2s;
+        }
+
+        .generate-dialog textarea:focus {
+            outline: none;
+            border-color: #4ecdc4;
+            box-shadow: 0 0 0 3px rgba(78, 205, 196, 0.15);
+        }
+
+        .generate-dialog textarea::placeholder {
+            color: #666;
+        }
+
+        .generate-dialog input[type="password"] {
+            width: 100%;
+            padding: 12px 14px;
+            border-radius: 10px;
+            background: rgba(0, 0, 0, 0.3);
+            color: #fff;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            font-family: inherit;
+            font-size: 14px;
+            transition: border-color 0.2s, box-shadow 0.2s;
+        }
+
+        .generate-dialog input[type="password"]:focus {
+            outline: none;
+            border-color: #4ecdc4;
+            box-shadow: 0 0 0 3px rgba(78, 205, 196, 0.15);
+        }
+
+        .generate-dialog select {
+            width: 100%;
+            padding: 10px 12px;
+            border-radius: 10px;
+            background: rgba(0, 0, 0, 0.3);
+            color: #fff;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            font-size: 14px;
+            transition: border-color 0.2s;
+        }
+
+        .generate-dialog select:focus {
+            outline: none;
+            border-color: #4ecdc4;
+        }
+
+        .progress-bar {
+            height: 6px;
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 3px;
+            overflow: hidden;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #4ecdc4, #44a08d);
+            width: 0%;
+            animation: progressPulse 1.5s ease-in-out infinite;
+        }
+
+        @keyframes progressPulse {
+            0%, 100% { width: 30%; margin-left: 0%; }
+            50% { width: 50%; margin-left: 50%; }
+        }
+
+        .results-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 10px;
+        }
+
+        .results-grid img {
+            width: 100%;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: transform 0.2s, box-shadow 0.2s;
+            border: 2px solid transparent;
+        }
+
+        .results-grid img:hover {
+            transform: scale(1.02);
+            box-shadow: 0 4px 20px rgba(78, 205, 196, 0.3);
+            border-color: #4ecdc4;
+        }
+
+        .result-item {
+            position: relative;
+        }
+
+        .result-item .download-btn {
+            position: absolute;
+            bottom: 8px;
+            right: 8px;
+            background: rgba(0,0,0,0.7);
+            color: #fff;
+            border: none;
+            padding: 6px 10px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 12px;
+            opacity: 0;
+            transition: opacity 0.2s;
+        }
+
+        .result-item:hover .download-btn {
+            opacity: 1;
+        }
+
+        .result-item .download-btn:hover {
+            background: #4ecdc4;
+            color: #1a1a2e;
+        }
+
+        /* Generate Dialog Settings Panel */
+        .gen-settings-toggle {
+            width: 40px;
+            height: 40px;
+            border-radius: 10px;
+            border: none;
+            background: rgba(255, 255, 255, 0.1);
+            color: #888;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.2s;
+            flex-shrink: 0;
+        }
+
+        .gen-settings-toggle:hover {
+            background: rgba(255, 255, 255, 0.15);
+            color: #fff;
+        }
+
+        .gen-settings-toggle.active {
+            background: rgba(78, 205, 196, 0.2);
+            color: #4ecdc4;
+        }
+
+        .gen-settings-toggle svg {
+            width: 18px;
+            height: 18px;
+            fill: currentColor;
+        }
+
+        .gen-settings-panel {
+            display: none;
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 12px;
+            padding: 16px;
+            margin-bottom: 14px;
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            animation: settingsPanelIn 0.2s ease-out;
+        }
+
+        @keyframes settingsPanelIn {
+            from {
+                opacity: 0;
+                transform: translateY(-8px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .gen-settings-panel.visible {
+            display: block;
+        }
+
+        .gen-settings-panel .setting-row {
+            margin-bottom: 14px;
+        }
+
+        .gen-settings-panel .setting-row:last-child {
+            margin-bottom: 0;
+        }
+
+        .gen-settings-panel label {
+            display: block;
+            color: #888;
+            font-size: 11px;
+            font-weight: 500;
+            margin-bottom: 6px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .gen-settings-panel select,
+        .gen-settings-panel input[type="password"],
+        .gen-settings-panel textarea {
+            width: 100%;
+            padding: 10px 12px;
+            border-radius: 8px;
+            background: rgba(0, 0, 0, 0.3);
+            color: #fff;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            font-size: 13px;
+            font-family: inherit;
+            transition: border-color 0.2s, box-shadow 0.2s;
+        }
+
+        .gen-settings-panel select:focus,
+        .gen-settings-panel input:focus,
+        .gen-settings-panel textarea:focus {
+            outline: none;
+            border-color: #4ecdc4;
+            box-shadow: 0 0 0 3px rgba(78, 205, 196, 0.15);
+        }
+
+        .gen-settings-panel textarea {
+            resize: vertical;
+            min-height: 80px;
+        }
+
+        .gen-settings-panel small {
+            display: block;
+            color: #666;
+            font-size: 11px;
+            margin-top: 4px;
+        }
+
+        .gen-settings-panel small a {
+            color: #4ecdc4;
+            text-decoration: none;
+        }
+
+        .gen-settings-panel small a:hover {
+            text-decoration: underline;
+        }
+
+        /* Game Items Panel */
+        #gameItemsPanel {
+            position: fixed;
+            top: 0;
+            left: -320px;
+            width: 320px;
+            height: 100vh;
+            background: rgba(26, 26, 46, 0.95);
+            backdrop-filter: blur(10px);
+            z-index: 200;
+            transition: left 0.3s ease;
+            display: flex;
+            flex-direction: column;
+            border-right: 1px solid #444;
+        }
+
+        #gameItemsPanel.visible {
+            left: 0;
+        }
+
+        #gameItemsPanel .gallery-header {
+            padding: 16px 20px;
+            border-bottom: 1px solid #444;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        #gameItemsPanel .gallery-header h3 {
+            color: #4ecdc4;
+            margin: 0;
+            font-size: 16px;
+        }
+
+        .game-items-toolbar {
+            display: flex;
+            gap: 8px;
+            padding: 12px 16px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+            background: rgba(0, 0, 0, 0.2);
+        }
+
+        .transform-btn {
+            flex: 1;
+            padding: 10px;
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            border-radius: 8px;
+            background: transparent;
+            color: #888;
+            font-size: 16px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .transform-btn:hover {
+            background: rgba(255, 255, 255, 0.1);
+            color: #fff;
+        }
+
+        .transform-btn.active {
+            background: rgba(78, 205, 196, 0.2);
+            border-color: #4ecdc4;
+            color: #4ecdc4;
+        }
+
+        .transform-btn.delete-btn:hover {
+            background: rgba(255, 100, 100, 0.2);
+            border-color: #ff6464;
+            color: #ff6464;
+        }
+
+        .game-items-section {
+            padding: 16px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+        }
+
+        .section-title {
+            color: #888;
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 12px;
+        }
+
+        .section-title span {
+            color: #4ecdc4;
+            margin-left: 6px;
+        }
+
+        .primitives-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 8px;
+        }
+
+        .primitive-btn {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 4px;
+            padding: 12px 8px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 8px;
+            background: rgba(0, 0, 0, 0.2);
+            color: #aaa;
+            font-size: 10px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .primitive-btn:hover {
+            background: rgba(78, 205, 196, 0.15);
+            border-color: rgba(78, 205, 196, 0.4);
+            color: #fff;
+        }
+
+        .primitive-icon {
+            font-size: 20px;
+        }
+
+        .placed-items-list {
+            max-height: 300px;
+            overflow-y: auto;
+        }
+
+        .placed-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 10px 12px;
+            border-radius: 8px;
+            background: rgba(0, 0, 0, 0.2);
+            margin-bottom: 6px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .placed-item:hover {
+            background: rgba(255, 255, 255, 0.1);
+        }
+
+        .placed-item.selected {
+            background: rgba(78, 205, 196, 0.2);
+            border: 1px solid rgba(78, 205, 196, 0.4);
+        }
+
+        .placed-item .item-icon {
+            font-size: 18px;
+        }
+
+        .placed-item .item-info {
+            flex: 1;
+        }
+
+        .placed-item .item-name {
+            color: #fff;
+            font-size: 13px;
+        }
+
+        .placed-item .item-pos {
+            color: #666;
+            font-size: 10px;
+        }
+
+        .empty-message {
+            color: #555;
+            font-size: 12px;
+            text-align: center;
+            padding: 20px;
+        }
+
+        #gameItemsBtn {
+            padding: 10px 16px;
+            border-radius: 20px;
+            border: none;
+            background: rgba(255, 255, 255, 0.95);
+            color: #333;
+            font-size: 13px;
+            font-weight: 500;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            box-shadow: 0 2px 12px rgba(0, 0, 0, 0.15);
+            transition: all 0.2s;
+        }
+
+        #gameItemsBtn:hover {
+            transform: scale(1.05);
+        }
+
+        #gameItemsBtn .badge {
+            background: #4ecdc4;
+            color: #1a1a2e;
+            padding: 2px 8px;
+            border-radius: 10px;
+            font-size: 11px;
+            font-weight: 600;
+        }
+
+        /* Gallery Panel */
+        #galleryPanel {
+            position: fixed;
+            top: 0;
+            right: -400px;
+            width: 400px;
+            height: 100vh;
+            background: rgba(26, 26, 46, 0.95);
+            backdrop-filter: blur(10px);
+            z-index: 200;
+            transition: right 0.3s ease;
+            display: flex;
+            flex-direction: column;
+            border-left: 1px solid #444;
+        }
+
+        #galleryPanel.visible {
+            right: 0;
+        }
+
+        #galleryPanel .gallery-header {
+            padding: 20px;
+            border-bottom: 1px solid #444;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        #galleryPanel .gallery-header h3 {
+            color: #4ecdc4;
+            margin: 0;
+        }
+
+        #galleryPanel .close-btn {
+            background: none;
+            border: none;
+            color: #888;
+            font-size: 24px;
+            cursor: pointer;
+            padding: 5px;
+        }
+
+        #galleryPanel .close-btn:hover {
+            color: #fff;
+        }
+
+        #galleryPanel .gallery-content {
+            flex: 1;
+            overflow-y: auto;
+            padding: 15px;
+        }
+
+        /* Gallery folder bar */
+        .gallery-folder-bar {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 10px 15px;
+            background: rgba(0, 0, 0, 0.2);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+            font-size: 12px;
+            color: #888;
+        }
+
+        .gallery-folder-bar.has-folder #galleryFolderStatus {
+            color: #4ecdc4;
+        }
+
+        .folder-btn {
+            padding: 6px 12px;
+            border-radius: 6px;
+            border: none;
+            background: rgba(255, 255, 255, 0.1);
+            color: #fff;
+            font-size: 11px;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+
+        .folder-btn:hover {
+            background: rgba(255, 255, 255, 0.2);
+        }
+
+        .gallery-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 12px;
+        }
+
+        .gallery-item {
+            position: relative;
+            border-radius: 8px;
+            overflow: hidden;
+            cursor: pointer;
+            aspect-ratio: 1;
+        }
+
+        .gallery-item img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            transition: transform 0.2s;
+        }
+
+        .gallery-item:hover img {
+            transform: scale(1.05);
+        }
+
+        .gallery-item .item-overlay {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            background: linear-gradient(transparent, rgba(0,0,0,0.8));
+            padding: 30px 10px 10px;
+            opacity: 0;
+            transition: opacity 0.2s;
+        }
+
+        .gallery-item:hover .item-overlay {
+            opacity: 1;
+        }
+
+        .gallery-item .item-prompt {
+            color: #fff;
+            font-size: 11px;
+            line-height: 1.3;
+            max-height: 40px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .gallery-empty {
+            text-align: center;
+            color: #666;
+            padding: 40px 20px;
+        }
+
+        .gallery-empty span {
+            font-size: 48px;
+            display: block;
+            margin-bottom: 10px;
+        }
+
+        /* Updated modal overlay - transparent when generate dialog */
+        .modal-overlay.transparent-bg {
+            background: transparent;
+            pointer-events: none;
+        }
+
+        .modal-overlay.transparent-bg .modal-dialog {
+            pointer-events: all;
+        }
+
+        /* ========================================
+           TOAST NOTIFICATIONS
+           ======================================== */
+        .save-toast {
+            position: fixed;
+            bottom: 30px;
+            left: 50%;
+            transform: translateX(-50%) translateY(20px);
+            background: rgba(26, 26, 46, 0.95);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            color: #fff;
+            padding: 14px 24px;
+            border-radius: 12px;
+            font-size: 14px;
+            font-weight: 500;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4),
+                        inset 0 1px 0 rgba(255, 255, 255, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            z-index: 2000;
+            opacity: 0;
+            transition: opacity 0.3s ease, transform 0.3s ease;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .save-toast.visible {
+            opacity: 1;
+            transform: translateX(-50%) translateY(0);
+        }
+
+        .save-toast .toast-icon {
+            font-size: 18px;
+        }
+
+        .save-toast strong {
+            color: #4ecdc4;
+        }
+    </style>
+</head>
+<body>
+    <div id="canvas-container"></div>
+
+    <!-- Mirror Mode Dialog -->
+    <div id="mirrorDialog" class="modal-overlay">
+        <div class="modal-dialog">
+            <h2>Enable Mirror Mode</h2>
+            <p>Choose how to start mirror mode:</p>
+            <div class="modal-buttons">
+                <button class="modal-btn modal-btn-primary" id="mirrorCleanup">
+                    Mirror with Cleanup
+                    <small>Delete everything on the mirrored side, then mirror from the source side</small>
+                </button>
+                <button class="modal-btn modal-btn-secondary" id="mirrorClean">
+                    Start Clean Model
+                    <small>Create a new empty model with mirror mode enabled</small>
+                </button>
+                <button class="modal-btn modal-btn-cancel" id="mirrorCancel">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Export Dialog -->
+    <div id="exportDialog" class="modal-overlay">
+        <div class="modal-dialog" style="text-align: center;">
+            <h2>Model Exported!</h2>
+            <p id="exportInfo">Your model has been exported as an OBJ file.</p>
+            <div class="modal-buttons">
+                <button class="modal-btn modal-btn-primary" id="exportOk" style="text-align: center;">OK</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Capture Frame Overlay -->
+    <div id="captureFrame">
+        <div class="dim-overlay" id="dimTop"></div>
+        <div class="dim-overlay" id="dimBottom"></div>
+        <div class="dim-overlay" id="dimLeft"></div>
+        <div class="dim-overlay" id="dimRight"></div>
+        <div class="frame-border" id="frameBorder">
+            <div class="frame-corner tl"></div>
+            <div class="frame-corner tr"></div>
+            <div class="frame-corner bl"></div>
+            <div class="frame-corner br"></div>
+            <div class="frame-label"><span id="frameLabelText">📷 Capture Area - Drag corners to resize</span></div>
+        </div>
+        <!-- Resize handles - top-center and right-center with capsule shape -->
+        <div class="resize-handle" id="handleTop" data-handle="top"></div>
+        <div class="resize-handle" id="handleRight" data-handle="right"></div>
+    </div>
+
+    <!-- Image Generation Dialog -->
+    <div id="generateDialog" class="modal-overlay transparent-bg">
+        <div class="modal-dialog generate-dialog">
+            <!-- Settings Panel (hidden by default) -->
+            <div class="gen-settings-panel" id="genSettingsPanel">
+                <div class="setting-row">
+                    <label>AI Provider</label>
+                    <select id="genAiProvider">
+                        <option value="stability">Stability AI (Recommended)</option>
+                        <option value="openai">OpenAI (DALL-E 3)</option>
+                        <option value="gemini">Google Gemini</option>
+                    </select>
+                </div>
+                <div class="setting-row">
+                    <label>API Key</label>
+                    <input type="password" id="genAiApiKey" placeholder="Enter API key...">
+                    <small>Required for image generation. <a href="https://platform.stability.ai/account/keys" target="_blank">Get Stability key</a></small>
+                </div>
+                <div class="setting-row">
+                    <label>System Prompt</label>
+                    <textarea id="genSystemPrompt" rows="4" placeholder="Instructions for the AI...">Use this image as the visual reference and generate a new image that matches it closely.
+
+* Match the camera: keep the same perspective, framing, and focal feel.
+* Style: low-poly overall, but you may add subtle extra detail where it improves readability and realism.
+* Background: clean and uncluttered, with minimal distractions.
+* Render quality: aim for a polished Unreal Engine look—cinematic lighting, crisp materials, and modern shading (not flat or cartoony).
+
+The user's creative direction:</textarea>
+                </div>
+            </div>
+
+            <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 10px;">
+                <button class="gen-settings-toggle" id="genSettingsToggle" title="Generation Settings">
+                    <svg viewBox="0 0 24 24"><path d="M19.14 12.94c.04-.31.06-.63.06-.94 0-.31-.02-.63-.06-.94l2.03-1.58c.18-.14.23-.41.12-.61l-1.92-3.32c-.12-.22-.37-.29-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54c-.04-.24-.24-.41-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.04.31-.06.63-.06.94s.02.63.06.94l-2.03 1.58c-.18.14-.23.41-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/></svg>
+                </button>
+                <textarea id="generatePrompt" rows="2" placeholder="Describe your creation..." style="flex: 1; margin: 0;"></textarea>
+                <button class="modal-btn modal-btn-primary" id="generateBtn" style="padding: 15px 20px; margin: 0;">
+                    ⬆
+                </button>
+            </div>
+
+            <div id="generateProgress" style="display: none; margin-bottom: 10px;">
+                <div class="progress-bar">
+                    <div class="progress-fill"></div>
+                </div>
+                <p id="generateStatus" style="text-align: center; margin-top: 8px; color: #aaa; font-size: 12px;">Generating...</p>
+            </div>
+
+            <div id="generateResults" style="display: none;">
+                <div id="resultsGrid" class="results-grid"></div>
+            </div>
+
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 10px;">
+                <select id="numVariations" style="width: auto; padding: 6px 10px; font-size: 12px;">
+                    <option value="1">1 image</option>
+                    <option value="2" selected>2 images</option>
+                    <option value="4">4 images</option>
+                </select>
+                <button class="modal-btn modal-btn-cancel" id="generateCancel" style="padding: 6px 12px; font-size: 12px;">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Gallery Panel -->
+    <div id="galleryPanel">
+        <div class="gallery-header">
+            <h3>🖼️ Generated Images</h3>
+            <button class="close-btn" id="closeGallery">×</button>
+        </div>
+        <div class="gallery-folder-bar" id="galleryFolderBar">
+            <span id="galleryFolderStatus">💾 Images saved to downloads</span>
+            <button id="selectGalleryFolderBtn" class="folder-btn">Select Folder</button>
+        </div>
+        <div class="gallery-content">
+            <div id="galleryGrid" class="gallery-grid"></div>
+            <div id="galleryEmpty" class="gallery-empty">
+                <span>🎨</span>
+                <p>No images yet. Press G to generate!</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Hidden canvas for capturing -->
+    <canvas id="previewCanvas" width="1024" height="1024" style="display: none;"></canvas>
+
+    <!-- Game Items Panel -->
+    <div id="gameItemsPanel">
+        <div class="gallery-header">
+            <h3>🎮 Game Items</h3>
+            <button class="close-btn" id="closeGameItems">×</button>
+        </div>
+        <div class="game-items-toolbar">
+            <button id="transformTranslate" class="transform-btn active" title="Move (G)">↔️</button>
+            <button id="transformRotate" class="transform-btn" title="Rotate (R)">🔄</button>
+            <button id="deleteGameItem" class="transform-btn delete-btn" title="Delete (Del)">🗑️</button>
+        </div>
+        <div class="gallery-content">
+            <div class="game-items-section">
+                <div class="section-title">Add Primitives</div>
+                <div class="primitives-grid">
+                    <button class="primitive-btn" data-type="cube" title="Cube">
+                        <div class="primitive-icon">⬜</div>
+                        <span>Cube</span>
+                    </button>
+                    <button class="primitive-btn" data-type="sphere" title="Sphere">
+                        <div class="primitive-icon">⚪</div>
+                        <span>Sphere</span>
+                    </button>
+                    <button class="primitive-btn" data-type="cylinder" title="Cylinder">
+                        <div class="primitive-icon">🔷</div>
+                        <span>Cylinder</span>
+                    </button>
+                    <button class="primitive-btn" data-type="cone" title="Cone">
+                        <div class="primitive-icon">🔺</div>
+                        <span>Cone</span>
+                    </button>
+                    <button class="primitive-btn" data-type="torus" title="Torus">
+                        <div class="primitive-icon">⭕</div>
+                        <span>Torus</span>
+                    </button>
+                    <button class="primitive-btn" data-type="capsule" title="Capsule">
+                        <div class="primitive-icon">💊</div>
+                        <span>Capsule</span>
+                    </button>
+                </div>
+            </div>
+            <div class="game-items-section">
+                <div class="section-title">Placed Items <span id="itemCount">0</span></div>
+                <div id="placedItemsList" class="placed-items-list">
+                    <div class="empty-message">No items placed yet</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Bottom Right Controls -->
+    <div class="bottom-right-controls">
+        <!-- Game Items Button -->
+        <button id="gameItemsBtn">
+            🎮 Items <span class="badge" id="gameItemsCount">0</span>
+        </button>
+
+        <!-- Gallery Button -->
+        <button id="galleryBtn" style="display: none;">
+            🖼️ Gallery <span class="badge" id="galleryCount">0</span>
+        </button>
+
+        <!-- Music Player -->
+        <div id="musicPlayer">
+            <select id="musicSelect">
+                <option value="">No music</option>
+                <option value="Music/Infinite-wonder-103bpm.mp3">Infinite Wonder</option>
+                <option value="Music/Planeteer Reaction 87bpm.wav">Planeteer Reaction</option>
+                <option value="Music/Hiber-island-86bpm.mp3">Hiber Island</option>
+            </select>
+            <button id="playBtn">
+                <svg class="play-icon" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+                <svg class="pause-icon" viewBox="0 0 24 24"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>
+            </button>
+        </div>
+    </div>
+
+    <div id="info">
+        <div class="control-row">
+            <span class="key-icon mouse">🖱</span>
+            <span class="control-label">Edit</span>
+        </div>
+        <div class="control-row">
+            <span class="key-icon mouse">🖱+</span>
+            <span class="control-label">Orbit</span>
+        </div>
+        <div class="control-row">
+            <span class="key-icon">Scroll</span>
+            <span class="control-label">Zoom</span>
+        </div>
+        <div class="control-row">
+            <span class="key-icon">Space</span>
+            <span class="control-label">Fly Up</span>
+        </div>
+        <div class="control-row">
+            <span class="key-icon">C</span>
+            <span class="control-label">Fly Down</span>
+        </div>
+        <div class="control-row toggle-row" id="showMoreBtn">
+            <span class="key-icon">Tab</span>
+            <span class="control-label">Show More</span>
+        </div>
+        <div class="controls-advanced" id="controlsAdvanced">
+            <div class="control-row">
+                <span class="key-icon">⌘Z</span>
+                <span class="control-label">Undo</span>
+            </div>
+            <div class="control-row">
+                <span class="key-icon">⌘⇧Z</span>
+                <span class="control-label">Redo</span>
+            </div>
+            <div class="control-row">
+                <span class="key-icon">⌘S</span>
+                <span class="control-label">Save Model</span>
+            </div>
+            <div class="control-row">
+                <span class="key-icon">⌘O</span>
+                <span class="control-label">Load Model</span>
+            </div>
+            <div class="control-row toggle-row" id="fillExtrudeToggle">
+                <span class="key-icon">Q</span>
+                <span class="control-label">Fill Extrude: <span id="fillExtrudeStatus">OFF</span></span>
+            </div>
+            <div class="control-row">
+                <span class="key-icon">M</span>
+                <span class="control-label">Mirror Mode</span>
+            </div>
+            <div class="control-row">
+                <span class="key-icon">E</span>
+                <span class="control-label">Export OBJ</span>
+            </div>
+            <div class="control-row">
+                <span class="key-icon">F</span>
+                <span class="control-label">Flip Edge</span>
+            </div>
+            <div class="control-row">
+                <span class="key-icon">G</span>
+                <span class="control-label">Generate Image</span>
+            </div>
+            <div class="control-row">
+                <span class="key-icon">P</span>
+                <span class="control-label">Game Items Panel</span>
+            </div>
+            <div class="control-row">
+                <span class="key-icon">Shift</span>
+                <span class="control-label">+Click Select Faces</span>
+            </div>
+            <div class="control-row">
+                <span class="key-icon">I</span>
+                <span class="control-label">Extrude Selection</span>
+            </div>
+            <div class="control-row toggle-row" id="showLessBtn">
+                <span class="key-icon">Tab</span>
+                <span class="control-label">Show Less</span>
+            </div>
+        </div>
+    </div>
+
+    <div id="settings" class="ui-panel">
+        <div class="ui-panel-header" onclick="this.parentElement.classList.toggle('collapsed')">
+            <h3><span class="panel-icon">⚙</span> Settings</h3>
+        </div>
+        <div class="ui-panel-content settings-content">
+            <!-- Material Section -->
+            <div class="settings-section-title">Material</div>
+            <div class="setting-group">
+                <label>Type</label>
+                <select id="materialType">
+                    <option value="physical">Physical (PBR)</option>
+                    <option value="matcap-clay">Matcap - Clay</option>
+                    <option value="matcap-metal">Matcap - Metal</option>
+                    <option value="matcap-shiny">Matcap - Shiny</option>
+                    <option value="matcap-soft">Matcap - Soft</option>
+                    <option value="matcap-jade">Matcap - Jade</option>
+                    <option value="matcap-red">Matcap - Red Wax</option>
+                </select>
+            </div>
+
+            <div id="physicalSettings">
+                <div class="setting-group">
+                    <label>Roughness <span class="value" id="roughnessVal">0.35</span></label>
+                    <input type="range" id="roughness" min="0" max="1" step="0.05" value="0.35">
+                </div>
+                <div class="setting-group">
+                    <label>Clearcoat <span class="value" id="clearcoatVal">0.0</span></label>
+                    <input type="range" id="clearcoat" min="0" max="1" step="0.1" value="0.0">
+                </div>
+
+                <div class="settings-divider"></div>
+
+                <!-- Main Light Section -->
+                <div class="settings-section-title">Main Light</div>
+                <div class="setting-group">
+                    <label>Intensity <span class="value" id="mainIntensityVal">3.0</span></label>
+                    <input type="range" id="mainIntensity" min="0" max="5" step="0.1" value="3.0">
+                </div>
+                <div class="setting-group">
+                    <label>Color</label>
+                    <input type="color" id="mainLightColor" value="#ffffff">
+                </div>
+                <div class="setting-group">
+                    <label>Azimuth <span class="value" id="mainAzimuthVal">225°</span></label>
+                    <input type="range" id="mainAzimuth" min="0" max="360" step="5" value="225">
+                </div>
+                <div class="setting-group">
+                    <label>Elevation <span class="value" id="mainElevationVal">60°</span></label>
+                    <input type="range" id="mainElevation" min="5" max="90" step="5" value="60">
+                </div>
+
+                <div class="settings-divider"></div>
+
+                <!-- Fill Light Section -->
+                <div class="settings-section-title">Fill Light</div>
+                <div class="setting-group">
+                    <label>Intensity <span class="value" id="fillIntensityVal">0.30</span></label>
+                    <input type="range" id="fillIntensity" min="0" max="1" step="0.05" value="0.30">
+                </div>
+                <div class="setting-group">
+                    <label>Color</label>
+                    <input type="color" id="fillLightColor" value="#4488ff">
+                </div>
+                <div class="setting-group">
+                    <label>Azimuth <span class="value" id="fillAzimuthVal">45°</span></label>
+                    <input type="range" id="fillAzimuth" min="0" max="360" step="5" value="45">
+                </div>
+                <div class="setting-group">
+                    <label>Elevation <span class="value" id="fillElevationVal">20°</span></label>
+                    <input type="range" id="fillElevation" min="0" max="90" step="5" value="20">
+                </div>
+
+                <div class="settings-divider"></div>
+
+                <!-- Ambient Section -->
+                <div class="settings-section-title">Ambient</div>
+                <div class="setting-group">
+                    <label>Intensity <span class="value" id="ambientIntensityVal">0.4</span></label>
+                    <input type="range" id="ambientIntensity" min="0" max="2" step="0.1" value="0.4">
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script type="importmap">
+    {
+        "imports": {
+            "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+            "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+        }
+    }
+    </script>
+    <script type="module" src="main.js"></script>
+</body>
+</html>
