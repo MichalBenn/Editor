@@ -71,11 +71,6 @@
             opacity: 1;
         }
 
-        #fillExtrudeStatus {
-            font-weight: 600;
-            transition: color 0.2s;
-        }
-
         .controls-advanced {
             display: none;
         }
@@ -104,11 +99,13 @@
         #musicPlayer {
             display: flex;
             align-items: center;
+            justify-content: space-between;
             gap: 12px;
             background: rgba(255, 255, 255, 0.95);
-            padding: 8px 12px 8px 16px;
-            border-radius: 25px;
+            padding: 8px 10px 8px 18px;
+            border-radius: 22px;
             box-shadow: 0 2px 12px rgba(0, 0, 0, 0.15);
+            width: 160px;
         }
 
         #musicPlayer select {
@@ -119,13 +116,14 @@
             color: #333;
             cursor: pointer;
             outline: none;
-            padding-right: 20px;
+            padding-right: 16px;
             -webkit-appearance: none;
             appearance: none;
-            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23666' d='M3 4.5L6 8l3-3.5H3z'/%3E%3C/svg%3E");
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 12 12'%3E%3Cpath fill='%23666' d='M3 4.5L6 8l3-3.5H3z'/%3E%3C/svg%3E");
             background-repeat: no-repeat;
             background-position: right 0 center;
-            min-width: 140px;
+            flex: 1;
+            min-width: 0;
         }
 
         #musicPlayer select:hover {
@@ -133,8 +131,8 @@
         }
 
         #playBtn {
-            width: 42px;
-            height: 42px;
+            width: 28px;
+            height: 28px;
             border-radius: 50%;
             border: none;
             background: #4ecdc4;
@@ -144,7 +142,7 @@
             align-items: center;
             justify-content: center;
             transition: transform 0.15s, background 0.15s;
-            box-shadow: 0 2px 8px rgba(78, 205, 196, 0.4);
+            flex-shrink: 0;
         }
 
         #playBtn:hover {
@@ -157,8 +155,8 @@
         }
 
         #playBtn svg {
-            width: 20px;
-            height: 20px;
+            width: 14px;
+            height: 14px;
             fill: currentColor;
         }
 
@@ -170,35 +168,6 @@
             display: none;
         }
 
-        /* Gallery Button - White Style */
-        #galleryBtn {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            background: rgba(255, 255, 255, 0.95);
-            padding: 8px 12px 8px 16px;
-            border-radius: 25px;
-            box-shadow: 0 2px 12px rgba(0, 0, 0, 0.15);
-            border: none;
-            cursor: pointer;
-            font-size: 14px;
-            font-weight: 500;
-            color: #333;
-            transition: transform 0.15s;
-        }
-
-        #galleryBtn:hover {
-            transform: scale(1.02);
-        }
-
-        #galleryBtn .badge {
-            background: #4ecdc4;
-            color: #fff;
-            padding: 4px 10px;
-            border-radius: 12px;
-            font-size: 12px;
-            font-weight: 600;
-        }
 
         /* ========================================
            UNIFIED PANEL/MODAL DESIGN SYSTEM
@@ -415,9 +384,9 @@
         }
 
         /* ========================================
-           SETTINGS PANEL (top-right)
+           RENDER PANEL (top-right)
            ======================================== */
-        #settings {
+        #renderPanel {
             position: absolute;
             top: 10px;
             right: 10px;
@@ -428,32 +397,23 @@
             font-size: 12px;
         }
 
-        #settings .ui-panel-header {
-            cursor: pointer;
-            user-select: none;
-            padding: 14px 16px;
-        }
-
-        #settings .ui-panel-header::after {
-            content: '▼';
-            font-size: 10px;
-            color: #666;
-            transition: transform 0.2s;
-        }
-
-        #settings.collapsed .ui-panel-header::after {
-            transform: rotate(-90deg);
-        }
-
-        #settings.collapsed .ui-panel-content {
+        #renderPanel {
             display: none;
         }
 
-        #settings .ui-panel-content {
+        #renderPanel.visible {
+            display: block;
+        }
+
+        #renderPanel .ui-panel-header {
             padding: 14px 16px;
         }
 
-        /* Settings panel specific form groups */
+        #renderPanel .ui-panel-content {
+            padding: 14px 16px;
+        }
+
+        /* Render panel specific form groups */
         .setting-group {
             margin-bottom: 12px;
         }
@@ -723,16 +683,16 @@
         }
 
         /* ========================================
-           GENERATE DIALOG (bottom-centered)
+           GENERATE DIALOG (top-centered, below toolbar)
            ======================================== */
         .generate-dialog {
             max-width: 440px;
             width: 90vw;
             position: fixed;
-            bottom: 60px;
+            top: 100px;
             left: 50%;
             transform: translateX(-50%);
-            top: auto;
+            bottom: auto;
             padding: 20px;
             animation: generateDialogSlideIn 0.2s ease-out;
         }
@@ -740,7 +700,7 @@
         @keyframes generateDialogSlideIn {
             from {
                 opacity: 0;
-                transform: translateX(-50%) translateY(10px) scale(0.98);
+                transform: translateX(-50%) translateY(-10px) scale(0.98);
             }
             to {
                 opacity: 1;
@@ -798,17 +758,17 @@
             background: #5fd9d0;
         }
 
-        /* Top handle - horizontal capsule for vertical resize */
-        #captureFrame .resize-handle[data-handle="top"] {
+        /* Bottom handle - horizontal capsule for vertical resize */
+        #captureFrame .resize-handle[data-handle="bottom"] {
             width: 50px;
             height: 12px;
             border-radius: 6px;
             cursor: ns-resize;
-            transform: translate(-50%, -50%);
+            transform: translate(-50%, 50%);
         }
 
-        #captureFrame .resize-handle[data-handle="top"]:hover {
-            transform: translate(-50%, -50%) scaleY(1.3);
+        #captureFrame .resize-handle[data-handle="bottom"]:hover {
+            transform: translate(-50%, 50%) scaleY(1.3);
         }
 
         /* Right handle - vertical capsule for horizontal resize */
@@ -1259,33 +1219,42 @@
             padding: 20px;
         }
 
-        #gameItemsBtn {
-            padding: 10px 16px;
-            border-radius: 20px;
+        #gameItemsBtn,
+        #galleryBtn {
+            padding: 8px 10px 8px 18px;
+            border-radius: 22px;
             border: none;
             background: rgba(255, 255, 255, 0.95);
             color: #333;
-            font-size: 13px;
+            font-size: 14px;
             font-weight: 500;
             cursor: pointer;
             display: flex;
             align-items: center;
-            gap: 8px;
+            justify-content: space-between;
+            gap: 12px;
+            width: 160px;
             box-shadow: 0 2px 12px rgba(0, 0, 0, 0.15);
             transition: all 0.2s;
         }
 
-        #gameItemsBtn:hover {
-            transform: scale(1.05);
+        #gameItemsBtn:hover,
+        #galleryBtn:hover {
+            transform: scale(1.02);
         }
 
-        #gameItemsBtn .badge {
+        #gameItemsBtn .badge,
+        #galleryBtn .badge {
             background: #4ecdc4;
-            color: #1a1a2e;
-            padding: 2px 8px;
-            border-radius: 10px;
-            font-size: 11px;
+            color: #fff;
+            width: 28px;
+            height: 28px;
+            border-radius: 50%;
+            font-size: 13px;
             font-weight: 600;
+            display: flex;
+            align-items: center;
+            justify-content: center;
         }
 
         /* Gallery Panel */
@@ -1481,10 +1450,1217 @@
         .save-toast strong {
             color: #4ecdc4;
         }
+
+        /* ========================================
+           MATERIALS PANEL
+           ======================================== */
+        #materialsPanel {
+            position: fixed;
+            top: 0;
+            left: -320px;
+            width: 320px;
+            height: 100vh;
+            background: rgba(26, 26, 46, 0.95);
+            backdrop-filter: blur(10px);
+            z-index: 200;
+            transition: left 0.3s ease;
+            display: flex;
+            flex-direction: column;
+            border-right: 1px solid #444;
+        }
+
+        #materialsPanel.visible {
+            left: 0;
+        }
+
+        #materialsPanel .gallery-header {
+            padding: 16px 20px;
+            border-bottom: 1px solid #444;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        #materialsPanel .gallery-header h3 {
+            color: #4ecdc4;
+            margin: 0;
+            font-size: 16px;
+        }
+
+        .materials-content {
+            flex: 1;
+            overflow-y: auto;
+            padding: 12px;
+        }
+
+        /* Material Categories */
+        .material-category {
+            margin-bottom: 8px;
+            border-radius: 10px;
+            background: rgba(0, 0, 0, 0.2);
+            overflow: hidden;
+        }
+
+        .category-header {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 12px 14px;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+
+        .category-header:hover {
+            background: rgba(255, 255, 255, 0.05);
+        }
+
+        .category-icon {
+            font-size: 16px;
+        }
+
+        .category-name {
+            flex: 1;
+            color: #fff;
+            font-size: 13px;
+            font-weight: 500;
+        }
+
+        .category-toggle {
+            color: #666;
+            font-size: 10px;
+            transition: transform 0.2s;
+        }
+
+        .material-category.collapsed .category-toggle {
+            transform: rotate(-90deg);
+        }
+
+        .material-category.collapsed .category-items {
+            display: none;
+        }
+
+        .category-items {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 8px;
+            padding: 8px 14px 14px;
+        }
+
+        /* Material Swatch */
+        .material-swatch {
+            aspect-ratio: 1;
+            border-radius: 8px;
+            cursor: pointer;
+            border: 2px solid transparent;
+            transition: all 0.2s;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .material-swatch:hover {
+            transform: scale(1.08);
+            border-color: rgba(255, 255, 255, 0.3);
+        }
+
+        .material-swatch.selected {
+            border-color: #4ecdc4;
+            box-shadow: 0 0 12px rgba(78, 205, 196, 0.4);
+        }
+
+        .material-swatch .swatch-preview {
+            width: 100%;
+            height: 100%;
+            border-radius: 6px;
+        }
+
+        .material-swatch .swatch-name {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            padding: 4px;
+            background: linear-gradient(transparent, rgba(0,0,0,0.8));
+            color: #fff;
+            font-size: 8px;
+            text-align: center;
+            opacity: 0;
+            transition: opacity 0.2s;
+        }
+
+        .material-swatch:hover .swatch-name {
+            opacity: 1;
+        }
+
+        /* Material Editor */
+        .material-editor {
+            margin-top: 12px;
+            padding: 16px;
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 12px;
+            border: 1px solid rgba(78, 205, 196, 0.2);
+        }
+
+        .editor-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 16px;
+            padding-bottom: 12px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+        }
+
+        .editor-header span {
+            color: #4ecdc4;
+            font-size: 14px;
+            font-weight: 600;
+        }
+
+        .close-editor-btn {
+            width: 24px;
+            height: 24px;
+            border-radius: 6px;
+            border: none;
+            background: rgba(255, 255, 255, 0.1);
+            color: #888;
+            cursor: pointer;
+            font-size: 14px;
+            transition: all 0.2s;
+        }
+
+        .close-editor-btn:hover {
+            background: rgba(255, 255, 255, 0.2);
+            color: #fff;
+        }
+
+        .editor-properties {
+            display: flex;
+            flex-direction: column;
+            gap: 14px;
+        }
+
+        .property-row {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+
+        .property-label {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .property-label span {
+            color: #888;
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 0.3px;
+        }
+
+        .property-label .property-value {
+            color: #4ecdc4;
+            font-size: 11px;
+            font-weight: 600;
+        }
+
+        .property-row input[type="range"] {
+            width: 100%;
+            height: 4px;
+            -webkit-appearance: none;
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 2px;
+            cursor: pointer;
+        }
+
+        .property-row input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            width: 14px;
+            height: 14px;
+            background: #4ecdc4;
+            border-radius: 50%;
+            cursor: pointer;
+            box-shadow: 0 2px 6px rgba(78, 205, 196, 0.4);
+        }
+
+        .property-row input[type="color"] {
+            width: 100%;
+            height: 32px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 6px;
+            cursor: pointer;
+            background: rgba(0, 0, 0, 0.3);
+            padding: 3px;
+        }
+
+        .property-row input[type="color"]::-webkit-color-swatch-wrapper {
+            padding: 0;
+        }
+
+        .property-row input[type="color"]::-webkit-color-swatch {
+            border: none;
+            border-radius: 4px;
+        }
+
+
+        /* ========================================
+           TOP TOOLBAR
+           ======================================== */
+        #toolbar {
+            position: fixed;
+            top: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            display: flex;
+            gap: 4px;
+            padding: 8px;
+            background: rgba(26, 32, 44, 0.95);
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+            border-radius: 12px;
+            border: 1px solid rgba(78, 108, 148, 0.3);
+            box-shadow: 0 4px 24px rgba(0, 0, 0, 0.3);
+            z-index: 300;
+        }
+
+        /* Transform Mode Panel */
+        .transform-mode-panel {
+            position: fixed;
+            top: 90px;
+            left: 50%;
+            transform: translateX(-50%);
+            display: flex;
+            gap: 4px;
+            padding: 6px;
+            background: rgba(26, 32, 44, 0.9);
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+            border-radius: 8px;
+            border: 1px solid rgba(78, 108, 148, 0.3);
+            box-shadow: 0 2px 12px rgba(0, 0, 0, 0.2);
+            z-index: 299;
+            transition: opacity 0.15s ease, transform 0.15s ease;
+        }
+
+        .transform-mode-panel.hidden {
+            opacity: 0;
+            pointer-events: none;
+            transform: translateX(-50%) translateY(-10px);
+        }
+
+        .transform-mode-btn {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding: 6px 12px;
+            background: transparent;
+            border: 1px solid transparent;
+            border-radius: 6px;
+            color: rgba(255, 255, 255, 0.7);
+            cursor: pointer;
+            font-size: 12px;
+            font-family: inherit;
+            transition: all 0.15s ease;
+        }
+
+        .transform-mode-btn:hover {
+            background: rgba(78, 205, 196, 0.1);
+            color: rgba(255, 255, 255, 0.9);
+        }
+
+        .transform-mode-btn.active {
+            background: rgba(78, 205, 196, 0.2);
+            border-color: rgba(78, 205, 196, 0.5);
+            color: #4ecdc4;
+        }
+
+        .transform-mode-btn svg {
+            width: 16px;
+            height: 16px;
+        }
+
+        .transform-mode-divider {
+            width: 1px;
+            height: 24px;
+            background: rgba(255, 255, 255, 0.15);
+            margin: 0 4px;
+        }
+
+        .snap-btn.active {
+            background: rgba(78, 205, 196, 0.25);
+        }
+
+        .tool-btn {
+            width: 56px;
+            height: 56px;
+            border: none;
+            border-radius: 8px;
+            background: transparent;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.15s ease;
+            position: relative;
+        }
+
+        .tool-btn:hover {
+            background: rgba(255, 255, 255, 0.08);
+        }
+
+        .tool-btn.active {
+            background: rgba(78, 108, 148, 0.4);
+        }
+
+        .tool-btn.disabled,
+        .tool-btn:disabled {
+            opacity: 0.35;
+            cursor: not-allowed;
+            pointer-events: none;
+        }
+
+        .tool-btn svg {
+            width: 24px;
+            height: 24px;
+        }
+
+        .tool-btn svg path {
+            fill: #a0aec0;
+            transition: fill 0.15s ease;
+        }
+
+        .tool-btn:hover svg path {
+            fill: #e2e8f0;
+        }
+
+        .tool-btn.active svg path {
+            fill: #e2e8f0;
+        }
+
+        /* Color picker button has a stroke, not fill */
+        .tool-btn svg path[stroke] {
+            fill: none;
+            stroke: #a0aec0;
+            transition: stroke 0.15s ease;
+        }
+
+        .tool-btn:hover svg path[stroke] {
+            stroke: #e2e8f0;
+        }
+
+        .tool-btn.active svg path[stroke] {
+            stroke: #e2e8f0;
+        }
+
+        /* Paint tool color indicator */
+        .tool-btn .paint-color {
+            position: absolute;
+            bottom: 6px;
+            right: 6px;
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            border: 2px solid rgba(26, 32, 44, 0.9);
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+        }
+
+        /* Tool tooltip */
+        .tool-btn::after {
+            content: attr(data-tooltip);
+            position: absolute;
+            bottom: -28px;
+            left: 50%;
+            transform: translateX(-50%);
+            padding: 4px 8px;
+            background: rgba(26, 32, 44, 0.95);
+            color: #a0aec0;
+            font-size: 11px;
+            font-weight: 500;
+            white-space: nowrap;
+            border-radius: 4px;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.15s ease;
+        }
+
+        .tool-btn:hover::after {
+            opacity: 1;
+        }
+
+        /* Toolbar separator */
+        .toolbar-separator {
+            width: 1px;
+            height: 32px;
+            background: rgba(255, 255, 255, 0.15);
+            margin: 12px 4px;
+        }
+
+        /* Toggle button style (for Fill Extrude) */
+        .tool-btn.toggle-btn.active {
+            background: rgba(78, 205, 196, 0.3);
+            border: 1px solid rgba(78, 205, 196, 0.5);
+        }
+
+        .tool-btn.toggle-btn.active svg path {
+            fill: #4ecdc4;
+        }
+
+        .tool-btn.toggle-btn.active svg path[stroke] {
+            stroke: #4ecdc4;
+        }
+
+        /* Mode labels (Mirror Mode, etc) */
+        .mode-label {
+            position: fixed;
+            top: 100px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(42, 42, 53, 0.98);
+            border: 2px solid rgba(78, 205, 196, 0.7);
+            border-radius: 8px;
+            padding: 10px 20px;
+            font-size: 14px;
+            font-weight: 500;
+            color: #4ecdc4;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            z-index: 200;
+            backdrop-filter: blur(10px);
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+        }
+
+        .mode-label.hidden {
+            display: none;
+        }
+
+        .mode-label-icon {
+            font-size: 16px;
+        }
+
+        .exit-mode-btn {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding: 6px 12px;
+            margin-left: 8px;
+            background: rgba(78, 205, 196, 0.15);
+            border: 1px solid rgba(78, 205, 196, 0.4);
+            border-radius: 6px;
+            color: #4ecdc4;
+            font-size: 13px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .exit-mode-btn:hover {
+            background: rgba(78, 205, 196, 0.25);
+            border-color: rgba(78, 205, 196, 0.6);
+        }
+
+        /* ========================================
+           MATERIAL MAKER
+           ======================================== */
+        .material-maker-overlay.visible {
+            display: flex;
+        }
+
+        .material-maker-dialog {
+            max-width: 700px;
+            width: 95vw;
+            max-height: 85vh;
+            padding: 0;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .maker-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 16px 20px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+        }
+
+        .maker-header h2 {
+            margin: 0;
+            font-size: 16px;
+            font-weight: 600;
+        }
+
+        .maker-content {
+            display: flex;
+            flex: 1;
+            overflow: hidden;
+        }
+
+        .maker-preview {
+            width: 200px;
+            padding: 20px;
+            background: rgba(0, 0, 0, 0.2);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 16px;
+            border-right: 1px solid rgba(255, 255, 255, 0.08);
+        }
+
+        .preview-sphere {
+            width: 160px;
+            height: 160px;
+            border-radius: 8px;
+            background: transparent;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .material-name-input {
+            width: 100%;
+            padding: 10px;
+            border-radius: 8px;
+            background: rgba(0, 0, 0, 0.3);
+            color: #fff;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            font-size: 13px;
+            text-align: center;
+        }
+
+        .material-name-input:focus {
+            outline: none;
+            border-color: #4ecdc4;
+        }
+
+        .maker-properties {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        .maker-tabs {
+            display: flex;
+            padding: 0 16px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+        }
+
+        .maker-tab {
+            padding: 12px 16px;
+            background: none;
+            border: none;
+            color: #888;
+            font-size: 13px;
+            cursor: pointer;
+            border-bottom: 2px solid transparent;
+            margin-bottom: -1px;
+            transition: all 0.2s;
+        }
+
+        .maker-tab:hover {
+            color: #fff;
+        }
+
+        .maker-tab.active {
+            color: #4ecdc4;
+            border-bottom-color: #4ecdc4;
+        }
+
+        .maker-tab-content {
+            flex: 1;
+            overflow-y: auto;
+            padding: 16px;
+        }
+
+        .tab-panel {
+            display: none;
+        }
+
+        .tab-panel.active {
+            display: block;
+        }
+
+        .property-group {
+            margin-bottom: 16px;
+        }
+
+        .property-group label {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 8px;
+            color: #888;
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 0.3px;
+        }
+
+        .property-group .property-value {
+            color: #4ecdc4;
+            font-weight: 600;
+        }
+
+        .property-group input[type="color"] {
+            width: 100%;
+            height: 36px;
+            border-radius: 8px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            background: rgba(0, 0, 0, 0.3);
+            cursor: pointer;
+            padding: 3px;
+        }
+
+        .property-group input[type="color"]::-webkit-color-swatch-wrapper {
+            padding: 0;
+        }
+
+        .property-group input[type="color"]::-webkit-color-swatch {
+            border: none;
+            border-radius: 5px;
+        }
+
+        .property-group input[type="range"] {
+            width: 100%;
+            height: 4px;
+            -webkit-appearance: none;
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 2px;
+            cursor: pointer;
+        }
+
+        .property-group input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            width: 14px;
+            height: 14px;
+            background: #4ecdc4;
+            border-radius: 50%;
+            cursor: pointer;
+            box-shadow: 0 2px 6px rgba(78, 205, 196, 0.4);
+        }
+
+        /* Color Wheel Picker */
+        .color-picker-group {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+
+        .color-picker-group .property-label {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            width: 100%;
+            margin-bottom: 15px;
+        }
+
+        .color-hex-input {
+            width: 80px;
+            padding: 6px 10px;
+            background: rgba(0, 0, 0, 0.3);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 6px;
+            color: #fff;
+            font-family: monospace;
+            font-size: 13px;
+            text-align: center;
+        }
+
+        .color-hex-input:focus {
+            outline: none;
+            border-color: #4ecdc4;
+        }
+
+        .color-wheel-container {
+            display: flex;
+            justify-content: center;
+            margin: 10px 0 30px 0;
+        }
+
+        /* Collapsible Color Picker in Settings Panel */
+        .color-picker-collapsible {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+
+        .color-swatch-toggle {
+            width: 28px;
+            height: 28px;
+            border-radius: 6px;
+            border: 2px solid rgba(255, 255, 255, 0.2);
+            cursor: pointer;
+            transition: all 0.2s ease;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+        }
+
+        .color-swatch-toggle:hover {
+            border-color: rgba(255, 255, 255, 0.4);
+            transform: scale(1.05);
+        }
+
+        .color-swatch-toggle.active {
+            border-color: #4ecdc4;
+            box-shadow: 0 0 8px rgba(78, 205, 196, 0.5);
+        }
+
+        .color-wheel-panel {
+            width: 100%;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            overflow: hidden;
+            max-height: 0;
+            opacity: 0;
+            transition: max-height 0.3s ease, opacity 0.2s ease, margin 0.3s ease;
+            margin-top: 0;
+        }
+
+        .color-wheel-panel.expanded {
+            max-height: 220px;
+            opacity: 1;
+            margin-top: 10px;
+        }
+
+        .color-wheel-panel .color-hex-input {
+            margin-bottom: 10px;
+        }
+
+        .color-wheel-setting-container {
+            display: flex;
+            justify-content: center;
+        }
+
+        .color-wheel-setting-container .color-preview {
+            display: none;
+        }
+
+        /* Patterns Tab */
+        .patterns-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 12px;
+        }
+
+        .patterns-header span {
+            color: #888;
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 0.3px;
+        }
+
+        .add-layer-btn {
+            padding: 6px 12px;
+            border-radius: 6px;
+            border: 1px dashed rgba(78, 205, 196, 0.5);
+            background: transparent;
+            color: #4ecdc4;
+            font-size: 12px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .add-layer-btn:hover {
+            background: rgba(78, 205, 196, 0.1);
+            border-style: solid;
+        }
+
+        .layers-list {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .empty-layers {
+            color: #666;
+            font-size: 12px;
+            text-align: center;
+            padding: 20px;
+        }
+
+        .layer-item {
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 10px;
+            overflow: hidden;
+        }
+
+        .layer-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 10px 12px;
+            background: rgba(255, 255, 255, 0.05);
+        }
+
+        .layer-name {
+            color: #fff;
+            font-size: 13px;
+            font-weight: 500;
+        }
+
+        .layer-controls {
+            display: flex;
+            gap: 6px;
+        }
+
+        .layer-toggle, .layer-delete {
+            width: 24px;
+            height: 24px;
+            border-radius: 4px;
+            border: none;
+            background: rgba(255, 255, 255, 0.1);
+            color: #888;
+            cursor: pointer;
+            font-size: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.2s;
+        }
+
+        .layer-toggle:hover, .layer-delete:hover {
+            background: rgba(255, 255, 255, 0.2);
+            color: #fff;
+        }
+
+        .layer-toggle.active {
+            color: #4ecdc4;
+        }
+
+        .layer-delete:hover {
+            background: rgba(255, 100, 100, 0.2);
+            color: #ff6464;
+        }
+
+        .layer-params {
+            padding: 12px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .layer-param {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+
+        .layer-param label {
+            color: #888;
+            font-size: 11px;
+        }
+
+        .layer-param .param-value {
+            color: #4ecdc4;
+            margin-left: 6px;
+        }
+
+        .layer-param input[type="color"] {
+            height: 28px;
+        }
+
+        .layer-param input[type="range"] {
+            height: 3px;
+        }
+
+        .layer-param select {
+            padding: 6px 8px;
+            border-radius: 6px;
+            background: rgba(0, 0, 0, 0.3);
+            color: #fff;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            font-size: 12px;
+        }
+
+        .layer-blend {
+            padding-top: 8px;
+            margin-top: 8px;
+            border-top: 1px solid rgba(255, 255, 255, 0.08);
+        }
+
+        /* Layer Selector */
+        .layer-selector {
+            background: rgba(0, 0, 0, 0.4);
+            border-radius: 10px;
+            margin-top: 12px;
+            overflow: hidden;
+        }
+
+        .layer-selector-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 10px 12px;
+            background: rgba(255, 255, 255, 0.05);
+        }
+
+        .layer-selector-header span {
+            color: #fff;
+            font-size: 13px;
+        }
+
+        .close-selector {
+            width: 24px;
+            height: 24px;
+            border-radius: 4px;
+            border: none;
+            background: rgba(255, 255, 255, 0.1);
+            color: #888;
+            cursor: pointer;
+        }
+
+        .close-selector:hover {
+            background: rgba(255, 255, 255, 0.2);
+            color: #fff;
+        }
+
+        .layer-options {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 8px;
+            padding: 12px;
+        }
+
+        .layer-option {
+            padding: 10px 12px;
+            border-radius: 8px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            background: transparent;
+            color: #fff;
+            cursor: pointer;
+            text-align: left;
+            transition: all 0.2s;
+        }
+
+        .layer-option:hover {
+            background: rgba(78, 205, 196, 0.1);
+            border-color: rgba(78, 205, 196, 0.4);
+        }
+
+        .layer-option-name {
+            display: block;
+            font-size: 13px;
+            font-weight: 500;
+            margin-bottom: 2px;
+        }
+
+        .layer-option-desc {
+            display: block;
+            font-size: 10px;
+            color: #888;
+        }
+
+        .maker-footer {
+            display: flex;
+            justify-content: flex-end;
+            gap: 10px;
+            padding: 16px 20px;
+            border-top: 1px solid rgba(255, 255, 255, 0.08);
+        }
+
+        /* Add Material Button in Materials Panel */
+        .add-material-btn {
+            width: 100%;
+            padding: 12px;
+            margin-top: 12px;
+            border-radius: 10px;
+            border: 2px dashed rgba(78, 205, 196, 0.4);
+            background: transparent;
+            color: #4ecdc4;
+            font-size: 14px;
+            font-weight: 500;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            transition: all 0.2s;
+        }
+
+        .add-material-btn:hover {
+            background: rgba(78, 205, 196, 0.1);
+            border-style: solid;
+        }
+
+        /* Model Edit Mode Indicator */
+        .model-edit-indicator {
+            position: fixed;
+            top: 100px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(42, 42, 53, 0.98);
+            backdrop-filter: blur(10px);
+            border: 2px solid rgba(78, 205, 196, 0.7);
+            border-radius: 8px;
+            padding: 10px 20px;
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            z-index: 200;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+        }
+
+        .model-edit-info {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            color: #e0e0e0;
+            font-size: 14px;
+        }
+
+        .model-edit-label {
+            color: #888;
+        }
+
+        .model-name {
+            color: #4ecdc4;
+            font-weight: 500;
+        }
+
+        .exit-model-btn {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding: 6px 12px;
+            background: rgba(78, 205, 196, 0.15);
+            border: 1px solid rgba(78, 205, 196, 0.4);
+            border-radius: 6px;
+            color: #4ecdc4;
+            font-size: 13px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .exit-model-btn:hover {
+            background: rgba(78, 205, 196, 0.25);
+            border-color: rgba(78, 205, 196, 0.7);
+        }
+
+        .exit-model-btn svg {
+            width: 12px;
+            height: 12px;
+        }
     </style>
 </head>
 <body>
     <div id="canvas-container"></div>
+
+    <!-- Top Toolbar -->
+    <div id="toolbar">
+        <button class="tool-btn active" id="toolBuild" data-tool="build" data-tooltip="Build (1)">
+            <svg width="22" height="21" viewBox="0 0 22 21" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path d="M13.8001 10.6456C14.0678 10.9146 14.0664 11.3496 13.7974 11.6173L5.28434 20.0891L5.16891 20.1998C3.9921 21.2668 2.19612 21.2669 1.02009 20.1992L0.90466 20.0891C0.325147 19.5066 -3.5916e-08 18.7178 0 17.8962C7.77803e-05 17.0746 0.325216 16.2864 0.90466 15.7039L9.38283 7.20185C9.65082 6.93327 10.0859 6.93261 10.3546 7.20051C10.6232 7.46844 10.6238 7.90347 10.3559 8.17217L1.87912 16.6729L1.76436 16.8004C1.51316 17.1085 1.37451 17.4952 1.37444 17.8962C1.37444 18.3546 1.55587 18.7944 1.87912 19.1195L2.00931 19.2382C2.68443 19.7917 3.68037 19.7526 4.31123 19.1195L4.31324 19.1175L12.8283 10.6436C13.0973 10.3759 13.5324 10.3766 13.8001 10.6456Z" fill="#D0D0D0"/>
+                <path d="M16.9923 13.6566C17.0876 13.6565 17.18 13.6299 17.2581 13.5811L17.3316 13.5247L20.4264 10.6234C20.5163 10.539 20.5669 10.4245 20.567 10.3052C20.567 10.1858 20.5164 10.0709 20.4264 9.98644L11.3478 1.47527C11.2577 1.39085 11.1351 1.34342 11.0077 1.34342C10.8805 1.3435 10.7584 1.39092 10.6684 1.47527L7.57362 4.37661L7.51345 4.44549C7.46143 4.51879 7.43302 4.60542 7.43298 4.69476C7.43298 4.81416 7.48358 4.92911 7.57362 5.01356L16.6522 13.5247C16.7423 13.6091 16.8649 13.6566 16.9923 13.6566ZM16.9923 15C16.4849 15 15.9978 14.8108 15.639 14.4746L6.56046 5.9634C6.20177 5.62703 6 5.17039 6 4.69476C6.00005 4.27875 6.15442 3.87769 6.43311 3.55862L6.56046 3.42677L9.65522 0.52543C10.0139 0.189232 10.5005 7.95301e-05 11.0077 0C11.5151 2.21763e-08 12.0022 0.189161 12.361 0.52543L21.4395 9.0366C21.7982 9.37297 22 9.82962 22 10.3052C21.9999 10.7808 21.7981 11.2369 21.4395 11.5732L18.3448 14.4746L18.2041 14.594C17.8638 14.8552 17.436 15 16.9923 15Z" fill="#D0D0D0"/>
+            </svg>
+        </button>
+        <button class="tool-btn" id="toolDelete" data-tool="delete" data-tooltip="Delete (2)">
+            <svg width="22" height="20" viewBox="0 0 22 20" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path d="M11.1289 0.875389C11.688 0.314878 12.4462 0 13.2368 0C14.0274 0 14.7856 0.314878 15.3447 0.875389L21.1271 6.67421C21.686 7.23489 22 7.99524 22 8.78804C22 9.58084 21.686 10.3412 21.1271 10.9019L12.9282 19.124C12.3692 19.6847 11.611 19.9998 10.8204 20H6.70752C5.91687 19.9998 5.15866 19.6847 4.59967 19.124L0.872915 15.3867C0.313988 14.826 0 14.0656 0 13.2728C0 12.48 0.313988 11.7197 0.872915 11.159L11.1275 0.875389H11.1289ZM14.2907 1.9323C14.0112 1.65205 13.6321 1.49461 13.2368 1.49461C12.8415 1.49461 12.4624 1.65205 12.1829 1.9323L5.27645 8.8583L13.1667 16.771L20.0732 9.84496C20.3526 9.56462 20.5096 9.18444 20.5096 8.78804C20.5096 8.39164 20.3526 8.01147 20.0732 7.73113L14.2907 1.9323ZM12.1128 17.8279L4.22252 9.91522L1.92833 12.2159C1.64887 12.4963 1.49187 12.8764 1.49187 13.2728C1.49187 13.6692 1.64887 14.0494 1.92833 14.3297L5.65509 18.0671C5.93458 18.3474 6.31369 18.505 6.70901 18.5051H10.8219C11.2172 18.505 11.5963 18.3474 11.8758 18.0671L12.1128 17.8279Z" fill="#D0D0D0"/>
+            </svg>
+        </button>
+        <button class="tool-btn" id="toolPaint" data-tool="paint" data-tooltip="Paint (3)">
+            <svg width="23" height="23" viewBox="0 0 23 23" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path d="M18.5346 18.5217L20.3846 16.6666L22.2335 18.5217C22.5995 18.8885 22.8487 19.3559 22.9497 19.8648C23.0507 20.3736 22.9989 20.9011 22.8009 21.3805C22.603 21.8599 22.2677 22.2696 21.8375 22.5579C21.4073 22.8461 20.9015 23 20.3841 23C19.8667 23 19.3609 22.8461 18.9307 22.5579C18.5005 22.2696 18.1652 21.8599 17.9672 21.3805C17.7692 20.9011 17.7175 20.3736 17.8185 19.8648C17.9195 19.3559 18.1687 18.8885 18.5346 18.5217ZM7.70471 0L19.5433 11.8704C19.6406 11.9678 19.7178 12.0835 19.7704 12.2109C19.8231 12.3383 19.8502 12.4748 19.8502 12.6127C19.8502 12.7506 19.8231 12.8872 19.7704 13.0145C19.7178 13.1419 19.6406 13.2576 19.5433 13.3551L10.6649 22.2581C10.4687 22.4548 10.2026 22.5653 9.9251 22.5653C9.64764 22.5653 9.38154 22.4548 9.18532 22.2581L0.306886 13.3551C0.209598 13.2576 0.132419 13.1419 0.0797615 13.0145C0.0271037 12.8872 0 12.7506 0 12.6127C0 12.4748 0.0271037 12.3383 0.0797615 12.2109C0.132419 12.0835 0.209598 11.9678 0.306886 11.8704L8.44554 3.70916L6.22514 1.48367L7.7068 0H7.70471ZM9.9251 5.19388L2.52623 12.6122H17.3229L9.9251 5.19388Z" fill="#D0D0D0"/>
+            </svg>
+            <span class="paint-color" id="paintColorIndicator" style="background: #888888;"></span>
+        </button>
+        <div class="toolbar-separator"></div>
+        <button class="tool-btn toggle-btn" id="toolFillExtrude" data-tooltip="Fill Extrude (Q)">
+            <svg width="23" height="12" viewBox="0 0 23 12" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path d="M16.3423 0.5H6.84229L0.842285 11.5H21.8423L16.3423 0.5Z" stroke="#D0D0D0"/>
+                <path d="M12.0923 7.5L12.0923 4.99999L13.2173 5.93749L14.3423 4.99999L11.3423 2.5L8.34229 4.99999L9.46729 5.93749L10.5923 4.99999L10.5923 7.49997L12.0923 7.5Z" fill="#D0D0D0"/>
+            </svg>
+        </button>
+        <button class="tool-btn toggle-btn" id="toolMirrorMode" data-tooltip="Mirror Mode (M)">
+            <svg width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <!-- Mirror line in center -->
+                <line x1="10" y1="2" x2="10" y2="18" stroke="#D0D0D0" stroke-width="1.5" stroke-dasharray="2 2"/>
+                <!-- Left arrow -->
+                <path d="M7 10L3 10M3 10L5 8M3 10L5 12" stroke="#D0D0D0" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                <!-- Right arrow -->
+                <path d="M13 10L17 10M17 10L15 8M17 10L15 12" stroke="#D0D0D0" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+        </button>
+        <div class="toolbar-separator"></div>
+        <button class="tool-btn" id="toolCreateModel" data-tooltip="Create Model (N)">
+            <svg width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <!-- Cube with + symbol -->
+                <path d="M10 2L3 6V14L10 18L17 14V6L10 2Z" stroke="#D0D0D0" stroke-width="1.2" fill="none"/>
+                <path d="M3 6L10 10L17 6" stroke="#D0D0D0" stroke-width="1.2"/>
+                <path d="M10 10V18" stroke="#D0D0D0" stroke-width="1.2"/>
+                <!-- Plus symbol -->
+                <circle cx="15" cy="5" r="4" fill="#2a2a35" stroke="#D0D0D0" stroke-width="1"/>
+                <path d="M15 3V7M13 5H17" stroke="#D0D0D0" stroke-width="1.2"/>
+            </svg>
+        </button>
+        <div class="toolbar-separator"></div>
+        <button class="tool-btn" id="toolRender" data-tooltip="Render">
+            <svg width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path d="M10 4C5.5 4 1.5 10 1.5 10C1.5 10 5.5 16 10 16C14.5 16 18.5 10 18.5 10C18.5 10 14.5 4 10 4Z" stroke="#D0D0D0" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                <circle cx="10" cy="10" r="3" stroke="#D0D0D0" stroke-width="1.5"/>
+            </svg>
+        </button>
+        <button class="tool-btn" id="toolGenerateImage" data-tooltip="Generate Image">
+            <svg width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <!-- Camera body -->
+                <rect x="2" y="5" width="16" height="12" rx="2" stroke="#D0D0D0" stroke-width="1.5"/>
+                <!-- Camera lens -->
+                <circle cx="10" cy="11" r="3.5" stroke="#D0D0D0" stroke-width="1.5"/>
+                <!-- Flash -->
+                <rect x="6" y="3" width="4" height="2" rx="0.5" stroke="#D0D0D0" stroke-width="1"/>
+                <!-- Sparkle for AI -->
+                <path d="M16 4L16.5 5L17.5 5.5L16.5 6L16 7L15.5 6L14.5 5.5L15.5 5L16 4Z" fill="#D0D0D0"/>
+            </svg>
+        </button>
+    </div>
+
+    <!-- Mirror Mode Label -->
+    <div id="mirrorModeLabel" class="mode-label hidden">
+        <span class="mode-label-icon">⬌</span>
+        <span>Mirror Mode</span>
+        <button class="exit-mode-btn" id="exitMirrorBtn">
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path d="M1 1L13 13M1 13L13 1" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+            </svg>
+            Exit
+        </button>
+    </div>
+
+    <!-- Transform Mode Panel (shown when model selected) -->
+    <div id="transformModePanel" class="transform-mode-panel hidden">
+        <button class="transform-mode-btn active" id="btnTranslate" data-mode="translate" title="Move (G)">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path d="M8 1L8 15M8 1L5 4M8 1L11 4M8 15L5 12M8 15L11 12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                <path d="M1 8L15 8M1 8L4 5M1 8L4 11M15 8L12 5M15 8L12 11" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+            <span>Move</span>
+        </button>
+        <button class="transform-mode-btn" id="btnRotate" data-mode="rotate" title="Rotate (R)">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path d="M14 8C14 11.3137 11.3137 14 8 14C4.68629 14 2 11.3137 2 8C2 4.68629 4.68629 2 8 2C10.2091 2 12.1364 3.26324 13.1974 5.1" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+                <path d="M10 5H14V1" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+            <span>Rotate</span>
+        </button>
+        <button class="transform-mode-btn" id="btnScale" data-mode="scale" title="Scale">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <rect x="2" y="2" width="5" height="5" stroke="currentColor" stroke-width="1.5"/>
+                <rect x="9" y="9" width="5" height="5" stroke="currentColor" stroke-width="1.5"/>
+                <path d="M7 4.5H9.5V7M9 11.5H6.5V9" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+            <span>Scale</span>
+        </button>
+        <div class="transform-mode-divider"></div>
+        <button class="transform-mode-btn snap-btn active" id="btnSnap" title="Snap to Grid">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <rect x="1" y="1" width="6" height="6" stroke="currentColor" stroke-width="1.5"/>
+                <rect x="9" y="1" width="6" height="6" stroke="currentColor" stroke-width="1.5"/>
+                <rect x="1" y="9" width="6" height="6" stroke="currentColor" stroke-width="1.5"/>
+                <rect x="9" y="9" width="6" height="6" stroke="currentColor" stroke-width="1.5"/>
+            </svg>
+            <span>Snap</span>
+        </button>
+    </div>
 
     <!-- Mirror Mode Dialog -->
     <div id="mirrorDialog" class="modal-overlay">
@@ -1529,8 +2705,8 @@
             <div class="frame-corner br"></div>
             <div class="frame-label"><span id="frameLabelText">📷 Capture Area - Drag corners to resize</span></div>
         </div>
-        <!-- Resize handles - top-center and right-center with capsule shape -->
-        <div class="resize-handle" id="handleTop" data-handle="top"></div>
+        <!-- Resize handles - bottom-center and right-center with capsule shape -->
+        <div class="resize-handle" id="handleBottom" data-handle="bottom"></div>
         <div class="resize-handle" id="handleRight" data-handle="right"></div>
     </div>
 
@@ -1619,6 +2795,67 @@ The user's creative direction:</textarea>
     <!-- Hidden canvas for capturing -->
     <canvas id="previewCanvas" width="1024" height="1024" style="display: none;"></canvas>
 
+    <!-- Materials Panel -->
+    <div id="materialsPanel">
+        <div class="gallery-header">
+            <h3>🎨 Materials</h3>
+            <button class="close-btn" id="closeMaterials">×</button>
+        </div>
+        <div class="materials-content">
+            <!-- Custom Materials (user-created) -->
+            <div class="material-category" data-category="custom" id="customMaterialsSection" style="display: none;">
+                <div class="category-header">
+                    <span class="category-icon">🎨</span>
+                    <span class="category-name">My Materials</span>
+                    <span class="category-toggle">▼</span>
+                </div>
+                <div class="category-items" id="customMaterials"></div>
+            </div>
+            <!-- Material Categories -->
+            <div class="material-category" data-category="solid">
+                <div class="category-header">
+                    <span class="category-icon">⬛</span>
+                    <span class="category-name">Solid Colors</span>
+                    <span class="category-toggle">▼</span>
+                </div>
+                <div class="category-items" id="solidMaterials"></div>
+            </div>
+            <div class="material-category" data-category="gradient">
+                <div class="category-header">
+                    <span class="category-icon">🌈</span>
+                    <span class="category-name">Gradients</span>
+                    <span class="category-toggle">▼</span>
+                </div>
+                <div class="category-items" id="gradientMaterials"></div>
+            </div>
+            <div class="material-category" data-category="pattern">
+                <div class="category-header">
+                    <span class="category-icon">🔲</span>
+                    <span class="category-name">Patterns</span>
+                    <span class="category-toggle">▼</span>
+                </div>
+                <div class="category-items" id="patternMaterials"></div>
+            </div>
+            <div class="material-category" data-category="metal">
+                <div class="category-header">
+                    <span class="category-icon">✨</span>
+                    <span class="category-name">Metals</span>
+                    <span class="category-toggle">▼</span>
+                </div>
+                <div class="category-items" id="metalMaterials"></div>
+            </div>
+
+            <!-- Material Properties Editor -->
+            <div id="materialEditor" class="material-editor" style="display: none;">
+                <div class="editor-header">
+                    <span id="editorMaterialName">Material</span>
+                    <button id="closeEditor" class="close-editor-btn">×</button>
+                </div>
+                <div id="editorProperties" class="editor-properties"></div>
+            </div>
+        </div>
+    </div>
+
     <!-- Game Items Panel -->
     <div id="gameItemsPanel">
         <div class="gallery-header">
@@ -1673,12 +2910,12 @@ The user's creative direction:</textarea>
     <div class="bottom-right-controls">
         <!-- Game Items Button -->
         <button id="gameItemsBtn">
-            🎮 Items <span class="badge" id="gameItemsCount">0</span>
+            Game items <span class="badge" id="gameItemsCount">0</span>
         </button>
 
         <!-- Gallery Button -->
         <button id="galleryBtn" style="display: none;">
-            🖼️ Gallery <span class="badge" id="galleryCount">0</span>
+            Gallery <span class="badge" id="galleryCount">0</span>
         </button>
 
         <!-- Music Player -->
@@ -1738,10 +2975,6 @@ The user's creative direction:</textarea>
                 <span class="key-icon">⌘O</span>
                 <span class="control-label">Load Model</span>
             </div>
-            <div class="control-row toggle-row" id="fillExtrudeToggle">
-                <span class="key-icon">Q</span>
-                <span class="control-label">Fill Extrude: <span id="fillExtrudeStatus">OFF</span></span>
-            </div>
             <div class="control-row">
                 <span class="key-icon">M</span>
                 <span class="control-label">Mirror Mode</span>
@@ -1763,12 +2996,12 @@ The user's creative direction:</textarea>
                 <span class="control-label">Game Items Panel</span>
             </div>
             <div class="control-row">
-                <span class="key-icon">Shift</span>
-                <span class="control-label">+Click Select Faces</span>
+                <span class="key-icon">T</span>
+                <span class="control-label">Materials Panel</span>
             </div>
             <div class="control-row">
-                <span class="key-icon">I</span>
-                <span class="control-label">Extrude Selection</span>
+                <span class="key-icon">Shift</span>
+                <span class="control-label">+Click Select Faces</span>
             </div>
             <div class="control-row toggle-row" id="showLessBtn">
                 <span class="key-icon">Tab</span>
@@ -1777,9 +3010,10 @@ The user's creative direction:</textarea>
         </div>
     </div>
 
-    <div id="settings" class="ui-panel">
-        <div class="ui-panel-header" onclick="this.parentElement.classList.toggle('collapsed')">
-            <h3><span class="panel-icon">⚙</span> Settings</h3>
+    <div id="renderPanel" class="ui-panel">
+        <div class="ui-panel-header">
+            <h3>Render</h3>
+            <button class="ui-panel-close" id="closeRenderPanel">×</button>
         </div>
         <div class="ui-panel-content settings-content">
             <!-- Material Section -->
@@ -1798,16 +3032,6 @@ The user's creative direction:</textarea>
             </div>
 
             <div id="physicalSettings">
-                <div class="setting-group">
-                    <label>Roughness <span class="value" id="roughnessVal">0.35</span></label>
-                    <input type="range" id="roughness" min="0" max="1" step="0.05" value="0.35">
-                </div>
-                <div class="setting-group">
-                    <label>Clearcoat <span class="value" id="clearcoatVal">0.0</span></label>
-                    <input type="range" id="clearcoat" min="0" max="1" step="0.1" value="0.0">
-                </div>
-
-                <div class="settings-divider"></div>
 
                 <!-- Main Light Section -->
                 <div class="settings-section-title">Main Light</div>
@@ -1815,9 +3039,13 @@ The user's creative direction:</textarea>
                     <label>Intensity <span class="value" id="mainIntensityVal">3.0</span></label>
                     <input type="range" id="mainIntensity" min="0" max="5" step="0.1" value="3.0">
                 </div>
-                <div class="setting-group">
+                <div class="setting-group color-picker-collapsible">
                     <label>Color</label>
-                    <input type="color" id="mainLightColor" value="#ffffff">
+                    <div class="color-swatch-toggle" id="mainLightColorSwatch" style="background-color: #ffffff;"></div>
+                    <div id="mainLightColorPanel" class="color-wheel-panel collapsed">
+                        <input type="text" id="mainLightColorHex" class="color-hex-input" value="#ffffff" maxlength="7">
+                        <div id="mainLightColorWheel" class="color-wheel-setting-container"></div>
+                    </div>
                 </div>
                 <div class="setting-group">
                     <label>Azimuth <span class="value" id="mainAzimuthVal">225°</span></label>
@@ -1836,9 +3064,13 @@ The user's creative direction:</textarea>
                     <label>Intensity <span class="value" id="fillIntensityVal">0.30</span></label>
                     <input type="range" id="fillIntensity" min="0" max="1" step="0.05" value="0.30">
                 </div>
-                <div class="setting-group">
+                <div class="setting-group color-picker-collapsible">
                     <label>Color</label>
-                    <input type="color" id="fillLightColor" value="#4488ff">
+                    <div class="color-swatch-toggle" id="fillLightColorSwatch" style="background-color: #4488ff;"></div>
+                    <div id="fillLightColorPanel" class="color-wheel-panel collapsed">
+                        <input type="text" id="fillLightColorHex" class="color-hex-input" value="#4488ff" maxlength="7">
+                        <div id="fillLightColorWheel" class="color-wheel-setting-container"></div>
+                    </div>
                 </div>
                 <div class="setting-group">
                     <label>Azimuth <span class="value" id="fillAzimuthVal">45°</span></label>
@@ -1861,6 +3093,20 @@ The user's creative direction:</textarea>
         </div>
     </div>
 
+    <!-- Model Edit Mode Indicator -->
+    <div id="model-edit-indicator" class="model-edit-indicator" style="display: none;">
+        <div class="model-edit-info">
+            <span class="model-edit-label">Editing Model:</span>
+            <span class="model-name">Model 1</span>
+        </div>
+        <button class="exit-model-btn" id="exitModelBtn">
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path d="M1 1L13 13M1 13L13 1" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+            </svg>
+            Exit Model
+        </button>
+    </div>
+
     <script type="importmap">
     {
         "imports": {
@@ -1869,6 +3115,6 @@ The user's creative direction:</textarea>
         }
     }
     </script>
-    <script type="module" src="main.js"></script>
+    <script type="module" src="main.js?v=36"></script>
 </body>
 </html>

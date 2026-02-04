@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { Voxel, Face, Edge, FACE_AXIS, FACE_CORNERS, FACE_EDGE_CORNERS, OPPOSITE_FACE } from './Voxel.js';
-import { VoxelWorld } from './VoxelWorld.js';
+import { VoxelWorld } from './VoxelWorld.js?v=11';
 
 /**
  * VoxelEditor handles mouse interaction for editing voxels
@@ -78,6 +78,29 @@ export class VoxelEditor {
         this.selectionIndicators = []; // Three.js meshes for selection highlights
         // Note: selectionMaterial is created in createIndicatorMaterials()
 
+        // Callback when face selection changes (set by main.js)
+        this.onFaceSelected = null; // Called when a face is added to selection
+
+        // Tool mode: 'build', 'delete', 'paint'
+        this.toolMode = 'build';
+
+        // Material Manager reference (set by main.js after construction)
+        this.materialManager = null;
+
+        // Legacy paint mode material (used when MaterialManager not available)
+        this.paintMaterial = null;
+
+        // Legacy build mode material (used when MaterialManager not available)
+        this.buildMaterial = null;
+        this.buildMaterialId = null;
+
+        // Editing context - allows switching between world and model editing
+        // When editing the world, editingContext === this.world
+        // When editing a model, editingContext === model (VoxelModel instance)
+        this.editingContext = this.world;
+        this.editingModel = null;  // Currently editing VoxelModel (or null for world)
+        this.isEditingModel = false;
+
         // Bind event handlers
         this.onMouseDown = this.onMouseDown.bind(this);
         this.onMouseMove = this.onMouseMove.bind(this);
@@ -87,6 +110,41 @@ export class VoxelEditor {
         this.domElement.addEventListener('mousedown', this.onMouseDown);
         this.domElement.addEventListener('mousemove', this.onMouseMove);
         this.domElement.addEventListener('mouseup', this.onMouseUp);
+    }
+
+    /**
+     * Set the editing context - switches between world and model editing
+     * @param {VoxelWorld|VoxelModel} context - The VoxelWorld or VoxelModel to edit
+     * @param {VoxelModel|null} model - The VoxelModel being edited (null for world)
+     */
+    setEditingContext(context, model = null) {
+        // Clear any active selection/drag state
+        this.clearFaceSelection();
+        this.hoveredVoxelKey = null;
+        this.hoveredFace = null;
+        this.isDragging = false;
+        this.fillExtrudeFaces = null;
+        this.fillExtrudeBaseFaces = null;
+        this.fillExtrudePartialVoxels = null;
+
+        // Switch context
+        this.editingContext = context;
+        this.editingModel = model;
+        this.isEditingModel = model !== null;
+
+        // Update hover indicator scene parent if needed
+        if (this.hoverIndicator && this.hoverIndicator.parent) {
+            const scene = this.hoverIndicator.parent;
+            // Indicator stays in same scene, just raycasts against different context
+        }
+    }
+
+    /**
+     * Get the current editing context (world or model)
+     * @returns {VoxelWorld|VoxelModel}
+     */
+    getEditingContext() {
+        return this.editingContext;
     }
 
     /**
@@ -107,7 +165,8 @@ export class VoxelEditor {
      */
     raycast() {
         this.raycaster.setFromCamera(this.mouse, this.camera);
-        const meshes = this.world.getMeshes();
+        // Use editingContext to get meshes - works for both VoxelWorld and VoxelModel
+        const meshes = this.editingContext.getMeshes();
         const intersects = this.raycaster.intersectObjects(meshes);
 
         if (intersects.length === 0) {
@@ -116,12 +175,22 @@ export class VoxelEditor {
 
         const hit = intersects[0];
         const voxelKey = hit.object.userData.voxelKey;
-        const voxel = this.world.voxels.get(voxelKey);
+        const voxel = this.editingContext.voxels.get(voxelKey);
 
         if (!voxel) return null;
 
         // Get local hit point (relative to voxel center)
-        const localPoint = hit.point.clone().sub(hit.object.position);
+        // When editing a model, we need to account for the model's transform
+        let localPoint;
+        if (this.isEditingModel && this.editingModel && this.editingModel.meshGroup) {
+            // Transform hit point from world space to model-local space
+            const modelInverse = new THREE.Matrix4().copy(this.editingModel.meshGroup.matrixWorld).invert();
+            const localHitPoint = hit.point.clone().applyMatrix4(modelInverse);
+            // Subtract voxel position to get point relative to voxel center
+            localPoint = localHitPoint.sub(new THREE.Vector3(voxel.x, voxel.y, voxel.z));
+        } else {
+            localPoint = hit.point.clone().sub(hit.object.position);
+        }
 
         // Determine which face was hit using the faceId attribute (NOT the geometric normal)
         // This is critical for beveled triangular surfaces where the geometric normal is diagonal
@@ -360,11 +429,34 @@ export class VoxelEditor {
         if (event.button !== 0) return; // Only left click
         if (!this.enabled) return; // Editing disabled
 
-        // Save undo state before any action
-        this.world.saveUndoState();
-
         this.updateMouse(event);
         const hit = this.raycast();
+
+        // Handle different tool modes
+        if (this.toolMode === 'delete') {
+            if (hit) {
+                // Save undo state before delete
+                this.editingContext.saveUndoState();
+                event.stopPropagation();
+                this.editingContext.removeVoxel(hit.voxel.x, hit.voxel.y, hit.voxel.z);
+            }
+            return;
+        }
+
+        if (this.toolMode === 'paint') {
+            // Check if we can paint (MaterialManager or legacy paintMaterial)
+            const canPaint = this.materialManager?.paintMaterialId || this.paintMaterial;
+            if (hit && canPaint) {
+                // Save undo state before paint
+                this.editingContext.saveUndoState();
+                event.stopPropagation();
+                this.paintVoxel(hit.voxel);
+            }
+            return;
+        }
+
+        // Build mode (default) - save undo state before any action
+        this.editingContext.saveUndoState();
 
         // Shift+click: face selection mode (disabled when Fill Extrude is active)
         if (event.shiftKey && !this.fillExtrudeEnabled && hit && hit.edge === Edge.None && (hit.corner === undefined || hit.corner === -1)) {
@@ -384,20 +476,34 @@ export class VoxelEditor {
             if (gridHit) {
                 // Check if there's already a voxel at this position
                 const key = VoxelWorld.getKey(gridHit.x, gridHit.y, gridHit.z);
-                if (!this.world.voxels.has(key)) {
+                if (!this.editingContext.voxels.has(key)) {
                     // Prevent orbit controls
                     event.stopPropagation();
 
                     // Create new voxel at grid position
-                    const newVoxel = this.world.addVoxel(gridHit.x, gridHit.y, gridHit.z);
+                    let newVoxel;
+                    if (this.materialManager) {
+                        // Use MaterialManager for build material
+                        newVoxel = this.editingContext.addVoxel(gridHit.x, gridHit.y, gridHit.z);
+                        this.materialManager.applyBuildMaterial(newVoxel);
+                        this.editingContext.updateVoxelMesh(newVoxel);
+                    } else {
+                        // Legacy path: use build material directly
+                        newVoxel = this.editingContext.addVoxel(
+                            gridHit.x, gridHit.y, gridHit.z,
+                            null,  // corners
+                            this.buildMaterial,
+                            this.buildMaterialId
+                        );
+                    }
 
                     // Handle mirror mode
-                    if (this.world.mirrorEnabled) {
-                        this.world.updateAllMirrors();
+                    if (this.editingContext.mirrorEnabled) {
+                        this.editingContext.updateAllMirrors();
                     }
 
                     // Select the new voxel's top face
-                    this.world.setSelection(key, Face.Top, Edge.None);
+                    this.editingContext.setSelection(key, Face.Top, Edge.None);
 
                     // Hide indicator
                     this.hideIndicator();
@@ -405,7 +511,7 @@ export class VoxelEditor {
                 }
             }
 
-            this.world.clearSelection();
+            this.editingContext.clearSelection();
             return;
         }
 
@@ -451,7 +557,7 @@ export class VoxelEditor {
                 for (const { voxel, face: voxelFace } of this.fillExtrudeFaces) {
                     const behindPos = voxel.getNeighborPosition(oppositeFace);
                     const behindKey = VoxelWorld.getKey(behindPos.x, behindPos.y, behindPos.z);
-                    const behindVoxel = this.world.voxels.get(behindKey);
+                    const behindVoxel = this.editingContext.voxels.get(behindKey);
                     console.log('[FillExtrude] Checking behind', voxel.getKey(), '-> behindPos:', behindKey, 'exists:', !!behindVoxel);
                     if (behindVoxel) {
                         const atBoundary = this.isFaceAtBoundary(behindVoxel, voxelFace);
@@ -495,12 +601,12 @@ export class VoxelEditor {
         this.lastDragDelta = 0;
 
         // Set selection
-        this.world.setSelection(hit.voxelKey, hit.face, hit.edge);
+        this.editingContext.setSelection(hit.voxelKey, hit.face, hit.edge);
 
         // If fill extrude is active, highlight all voxels in the group
         if (this.fillExtrudeFaces && this.fillExtrudeFaces.length > 1) {
             const groupKeys = this.fillExtrudeFaces.map(({ voxel }) => voxel.getKey());
-            this.world.setFillGroupSelection(groupKeys);
+            this.editingContext.setFillGroupSelection(groupKeys);
         }
     }
 
@@ -513,6 +619,27 @@ export class VoxelEditor {
         if (!this.enabled) {
             this.hideIndicator();
             return;
+        }
+
+        // Handle paint/delete dragging (click and drag to paint/delete multiple)
+        if (event.buttons === 1) { // Left mouse button held
+            if (this.toolMode === 'paint') {
+                const hit = this.raycast();
+                const canPaint = this.materialManager?.paintMaterialId || this.paintMaterial;
+                if (hit && canPaint) {
+                    this.paintVoxel(hit.voxel);
+                }
+                this.handleHover(); // Still show hover indicator while painting
+                return;
+            }
+            if (this.toolMode === 'delete') {
+                const hit = this.raycast();
+                if (hit) {
+                    this.editingContext.removeVoxel(hit.voxel.x, hit.voxel.y, hit.voxel.z);
+                }
+                this.handleHover(); // Still show hover indicator while deleting
+                return;
+            }
         }
 
         if (this.isDragging) {
@@ -594,7 +721,7 @@ export class VoxelEditor {
 
         if (result === 'remove') {
             // Voxel collapsed from indenting
-            this.world.removeVoxel(voxel.x, voxel.y, voxel.z);
+            this.editingContext.removeVoxel(voxel.x, voxel.y, voxel.z);
 
             // Continue indenting into the next voxel behind this one
             // Don't apply any indent yet - just switch to the next voxel
@@ -612,7 +739,7 @@ export class VoxelEditor {
 
             // Only extend when pushing in the OUTWARD direction
             if (delta <= 0) {
-                this.world.updateVoxelMesh(voxel);
+                this.editingContext.updateVoxelMesh(voxel);
             } else {
                 // Calculate overflow - how far past the boundary in the extension direction
                 let overflow;
@@ -625,7 +752,7 @@ export class VoxelEditor {
                 }
 
                 this.justExtended = false;
-                this.world.updateVoxelMesh(voxel); // Update the current voxel first
+                this.editingContext.updateVoxelMesh(voxel); // Update the current voxel first
 
                 if (overflow > 0.001) {
                     this.handleFaceExtension(overflow);
@@ -634,7 +761,7 @@ export class VoxelEditor {
         } else {
             // Normal update
             this.justExtended = false;
-            this.world.updateVoxelMesh(voxel);
+            this.editingContext.updateVoxelMesh(voxel);
         }
     }
 
@@ -698,28 +825,30 @@ export class VoxelEditor {
         const newVoxels = [];
         for (const { voxel, face: voxelFace } of this.fillExtrudeFaces) {
             const neighborPos = voxel.getNeighborPosition(voxelFace);
-            const wouldCrossMirror = this.world.wouldCrossMirror(neighborPos.x, neighborPos.y, neighborPos.z);
-            const isEmpty = this.world.isNeighborEmpty(voxel, voxelFace);
+            const wouldCrossMirror = this.editingContext.wouldCrossMirror(neighborPos.x, neighborPos.y, neighborPos.z);
+            const isEmpty = this.editingContext.isNeighborEmpty(voxel, voxelFace);
 
             if (!isEmpty || wouldCrossMirror) {
                 continue;
             }
 
             // Create new partial voxel with the initial delta size
+            // forceInheritMaterial=true for fill extrude to inherit material from source
             const newVoxel = this.createExtendedVoxel(
                 voxel,
                 neighborPos.x,
                 neighborPos.y,
                 neighborPos.z,
                 voxelFace,
-                Math.min(Math.abs(delta), 1.0)
+                Math.min(Math.abs(delta), 1.0),
+                true // forceInheritMaterial for fill extrude
             );
 
             if (newVoxel && !newVoxel.isCollapsed()) {
-                this.world.updateVoxelMesh(newVoxel);
+                this.editingContext.updateVoxelMesh(newVoxel);
                 newVoxels.push({ voxel: newVoxel, face: voxelFace, sourceVoxel: voxel });
             } else if (newVoxel) {
-                this.world.removeVoxel(newVoxel.x, newVoxel.y, newVoxel.z);
+                this.editingContext.removeVoxel(newVoxel.x, newVoxel.y, newVoxel.z);
             }
         }
 
@@ -747,7 +876,7 @@ export class VoxelEditor {
                 // Update fill group selection to highlight new layer voxels
                 if (this.fillExtrudeFaces.length > 1) {
                     const groupKeys = this.fillExtrudeFaces.map(({ voxel }) => voxel.getKey());
-                    this.world.setFillGroupSelection(groupKeys);
+                    this.editingContext.setFillGroupSelection(groupKeys);
                 }
             } else {
                 // Store partial voxels for continued growing
@@ -758,7 +887,7 @@ export class VoxelEditor {
                 // Update fill group selection to highlight partial voxels
                 if (newVoxels.length > 1) {
                     const groupKeys = newVoxels.map(({ voxel }) => voxel.getKey());
-                    this.world.setFillGroupSelection(groupKeys);
+                    this.editingContext.setFillGroupSelection(groupKeys);
                 }
             }
 
@@ -767,8 +896,8 @@ export class VoxelEditor {
         }
 
         // Handle mirror mode
-        if (this.world.mirrorEnabled) {
-            this.world.updateAllMirrors();
+        if (this.editingContext.mirrorEnabled) {
+            this.editingContext.updateAllMirrors();
         }
     }
 
@@ -795,7 +924,7 @@ export class VoxelEditor {
                 console.log('[FillExtrudeGrow] Snapped to boundary');
             }
 
-            this.world.updateVoxelMesh(voxel);
+            this.editingContext.updateVoxelMesh(voxel);
 
             const atBoundary = this.isFaceAtBoundary(voxel, voxelFace);
             if (!atBoundary) {
@@ -807,7 +936,7 @@ export class VoxelEditor {
         // Update fill group selection to keep partial voxels highlighted
         if (this.fillExtrudePartialVoxels.length > 1) {
             const groupKeys = this.fillExtrudePartialVoxels.map(({ voxel }) => voxel.getKey());
-            this.world.setFillGroupSelection(groupKeys);
+            this.editingContext.setFillGroupSelection(groupKeys);
         }
 
         console.log('[FillExtrudeGrow] allAtBoundary:', allAtBoundary);
@@ -828,7 +957,7 @@ export class VoxelEditor {
                 // Update fill group selection
                 if (this.fillExtrudeFaces && this.fillExtrudeFaces.length > 1) {
                     const groupKeys = this.fillExtrudeFaces.map(({ voxel }) => voxel.getKey());
-                    this.world.setFillGroupSelection(groupKeys);
+                    this.editingContext.setFillGroupSelection(groupKeys);
                 }
             } else {
                 // Partial voxels were created by extension - transition to new layer
@@ -842,14 +971,14 @@ export class VoxelEditor {
                 // Update fill group selection to highlight new voxels
                 if (this.fillExtrudeFaces.length > 1) {
                     const groupKeys = this.fillExtrudeFaces.map(({ voxel }) => voxel.getKey());
-                    this.world.setFillGroupSelection(groupKeys);
+                    this.editingContext.setFillGroupSelection(groupKeys);
                 }
             }
         }
 
         // Handle mirror mode
-        if (this.world.mirrorEnabled) {
-            this.world.updateAllMirrors();
+        if (this.editingContext.mirrorEnabled) {
+            this.editingContext.updateAllMirrors();
         }
     }
 
@@ -899,7 +1028,7 @@ export class VoxelEditor {
                 // Find the voxel behind this one to continue collapsing
                 const behindPos = voxel.getNeighborPosition(oppositeFace);
                 const behindKey = VoxelWorld.getKey(behindPos.x, behindPos.y, behindPos.z);
-                const behindVoxel = this.world.voxels.get(behindKey);
+                const behindVoxel = this.editingContext.voxels.get(behindKey);
 
                 if (behindVoxel) {
                     const atBoundary = this.isFaceAtBoundary(behindVoxel, voxelFace);
@@ -911,14 +1040,14 @@ export class VoxelEditor {
                 }
             } else {
                 // Voxel still exists, update its mesh
-                this.world.updateVoxelMesh(voxel);
+                this.editingContext.updateVoxelMesh(voxel);
                 survivingVoxels.push({ voxel, face: voxelFace });
             }
         }
 
         // Remove collapsed voxels
         for (const voxel of voxelsToRemove) {
-            this.world.removeVoxel(voxel.x, voxel.y, voxel.z);
+            this.editingContext.removeVoxel(voxel.x, voxel.y, voxel.z);
         }
 
         // If any voxels were removed, check if we need to update the tracked faces
@@ -945,7 +1074,7 @@ export class VoxelEditor {
                 // Update fill group selection for the new layer
                 if (this.fillExtrudeFaces.length > 1) {
                     const groupKeys = this.fillExtrudeFaces.map(({ voxel }) => voxel.getKey());
-                    this.world.setFillGroupSelection(groupKeys);
+                    this.editingContext.setFillGroupSelection(groupKeys);
                 }
             }
         }
@@ -976,14 +1105,14 @@ export class VoxelEditor {
                 // Update fill group selection to highlight surviving voxels
                 if (survivingVoxels.length > 1) {
                     const groupKeys = survivingVoxels.map(({ voxel }) => voxel.getKey());
-                    this.world.setFillGroupSelection(groupKeys);
+                    this.editingContext.setFillGroupSelection(groupKeys);
                 }
             }
         }
 
         // Handle mirror mode
-        if (this.world.mirrorEnabled) {
-            this.world.updateAllMirrors();
+        if (this.editingContext.mirrorEnabled) {
+            this.editingContext.updateAllMirrors();
         }
     }
 
@@ -1002,9 +1131,9 @@ export class VoxelEditor {
             if (result === 'remove' || voxel.isCollapsed()) {
                 // Partial voxel collapsed - remove it
                 voxelsToRemove.push(partialInfo);
-                this.world.removeVoxel(voxel.x, voxel.y, voxel.z);
+                this.editingContext.removeVoxel(voxel.x, voxel.y, voxel.z);
             } else {
-                this.world.updateVoxelMesh(voxel);
+                this.editingContext.updateVoxelMesh(voxel);
             }
         }
 
@@ -1017,7 +1146,7 @@ export class VoxelEditor {
             // Update fill group selection for remaining partial voxels
             if (this.fillExtrudePartialVoxels.length > 1) {
                 const groupKeys = this.fillExtrudePartialVoxels.map(({ voxel }) => voxel.getKey());
-                this.world.setFillGroupSelection(groupKeys);
+                this.editingContext.setFillGroupSelection(groupKeys);
             }
         }
 
@@ -1036,7 +1165,7 @@ export class VoxelEditor {
                 // Update fill group selection to highlight restored base voxels
                 if (this.fillExtrudeFaces.length > 1) {
                     const groupKeys = this.fillExtrudeFaces.map(({ voxel }) => voxel.getKey());
-                    this.world.setFillGroupSelection(groupKeys);
+                    this.editingContext.setFillGroupSelection(groupKeys);
                 }
             }
 
@@ -1047,8 +1176,8 @@ export class VoxelEditor {
         }
 
         // Handle mirror mode
-        if (this.world.mirrorEnabled) {
-            this.world.updateAllMirrors();
+        if (this.editingContext.mirrorEnabled) {
+            this.editingContext.updateAllMirrors();
         }
     }
 
@@ -1072,14 +1201,14 @@ export class VoxelEditor {
         while (remainingExtension > 0.001) {
             // Check if neighbor space is empty
             const neighborPos = currentVoxel.getNeighborPosition(face);
-            const neighborEmpty = this.world.isNeighborEmpty(currentVoxel, face);
+            const neighborEmpty = this.editingContext.isNeighborEmpty(currentVoxel, face);
 
             if (!neighborEmpty) {
                 break;
             }
 
             // Check if this would cross the mirror boundary
-            if (this.world.wouldCrossMirror(neighborPos.x, neighborPos.y, neighborPos.z)) {
+            if (this.editingContext.wouldCrossMirror(neighborPos.x, neighborPos.y, neighborPos.z)) {
                 break;
             }
 
@@ -1102,11 +1231,11 @@ export class VoxelEditor {
 
             // Check if the new voxel has volume
             if (newVoxel.isCollapsed()) {
-                this.world.removeVoxel(newVoxel.x, newVoxel.y, newVoxel.z);
+                this.editingContext.removeVoxel(newVoxel.x, newVoxel.y, newVoxel.z);
                 break;
             }
 
-            this.world.updateVoxelMesh(newVoxel);
+            this.editingContext.updateVoxelMesh(newVoxel);
 
             // Move to this voxel for next iteration
             currentVoxel = newVoxel;
@@ -1122,7 +1251,7 @@ export class VoxelEditor {
             this.justExtended = true;
 
             // Update selection
-            this.world.setSelection(currentVoxel.getKey(), face, Edge.None);
+            this.editingContext.setSelection(currentVoxel.getKey(), face, Edge.None);
         }
     }
 
@@ -1153,13 +1282,13 @@ export class VoxelEditor {
         nextVoxelPos.z += oppositeAxis[2];
 
         const nextKey = VoxelWorld.getKey(nextVoxelPos.x, nextVoxelPos.y, nextVoxelPos.z);
-        const nextVoxel = this.world.voxels.get(nextKey);
+        const nextVoxel = this.editingContext.voxels.get(nextKey);
 
         if (!nextVoxel) {
             // No more voxels to indent into - stop dragging
             this.isDragging = false;
             this.dragVoxel = null;
-            this.world.clearSelection();
+            this.editingContext.clearSelection();
             return;
         }
 
@@ -1167,7 +1296,7 @@ export class VoxelEditor {
         this.dragVoxel = nextVoxel;
         this.dragFace = face;
         this.dragAxis = axis;
-        this.world.setSelection(nextKey, face, Edge.None);
+        this.editingContext.setSelection(nextKey, face, Edge.None);
 
         // Don't apply any indent now - the continued mouse drag will naturally
         // apply the next step. This prevents the "jump" of applying an extra step.
@@ -1178,11 +1307,11 @@ export class VoxelEditor {
      * This handles beveled faces correctly by building the new voxel's corners
      * based on the source's extending face shape
      */
-    createExtendedVoxel(sourceVoxel, x, y, z, extensionFace, extensionAmount) {
+    createExtendedVoxel(sourceVoxel, x, y, z, extensionFace, extensionAmount, forceInheritMaterial = false) {
         const key = VoxelWorld.getKey(x, y, z);
 
-        if (this.world.voxels.has(key)) {
-            return this.world.voxels.get(key);
+        if (this.editingContext.voxels.has(key)) {
+            return this.editingContext.voxels.get(key);
         }
 
         const axis = FACE_AXIS[extensionFace];
@@ -1239,8 +1368,44 @@ export class VoxelEditor {
 
         newVoxel.updateFlags();
 
+        // Material assignment logic:
+        // - If forceInheritMaterial is true (fill extrude), always inherit from source
+        // - If source is a PARTIAL voxel (has been sculpted), inherit its material
+        // - If source is a FULL cube, use the selected build material
+        // This allows extrusion to continue a partial voxel's material, but clicking
+        // on full voxels uses the selected material from the palette
+        const sourceIsPartial = !sourceVoxel.isFullCube();
+        const shouldInherit = forceInheritMaterial || sourceIsPartial;
+
+        if (shouldInherit) {
+            // Inherit material from source voxel
+            if (this.materialManager) {
+                this.materialManager.inheritMaterial(sourceVoxel, newVoxel);
+            } else {
+                // Legacy path
+                if (sourceVoxel.material) {
+                    newVoxel.material = sourceVoxel.material;
+                    newVoxel.materialId = sourceVoxel.materialId;
+                } else if (this.buildMaterial && this.buildMaterialId) {
+                    newVoxel.material = this.buildMaterial;
+                    newVoxel.materialId = this.buildMaterialId;
+                }
+            }
+        } else {
+            // Source is a full cube - use the selected build material
+            if (this.materialManager) {
+                this.materialManager.applyBuildMaterial(newVoxel);
+            } else {
+                // Legacy path
+                if (this.buildMaterial && this.buildMaterialId) {
+                    newVoxel.material = this.buildMaterial;
+                    newVoxel.materialId = this.buildMaterialId;
+                }
+            }
+        }
+
         // Add to world
-        this.world.voxels.set(key, newVoxel);
+        this.editingContext.voxels.set(key, newVoxel);
 
         return newVoxel;
     }
@@ -1383,10 +1548,10 @@ export class VoxelEditor {
 
         if (result === 'addEdge') {
             // Edge went out of bounds - extend to neighbor
-            this.world.updateVoxelMesh(voxel);
+            this.editingContext.updateVoxelMesh(voxel);
             this.handleEdgeExtension(delta);
         } else {
-            this.world.updateVoxelMesh(voxel);
+            this.editingContext.updateVoxelMesh(voxel);
         }
     }
 
@@ -1399,13 +1564,13 @@ export class VoxelEditor {
         const edge = this.dragEdge;
 
         // Check if neighbor space is empty
-        if (!this.world.isNeighborEmpty(voxel, face)) {
+        if (!this.editingContext.isNeighborEmpty(voxel, face)) {
             return; // Blocked by neighbor
         }
 
         // Create new voxel at neighbor position
         const neighborPos = voxel.getNeighborPosition(face);
-        const newVoxel = this.world.addCollapsedVoxel(
+        const newVoxel = this.editingContext.addCollapsedVoxel(
             neighborPos.x,
             neighborPos.y,
             neighborPos.z,
@@ -1434,7 +1599,7 @@ export class VoxelEditor {
         }
 
         newVoxel.updateFlags();
-        this.world.updateVoxelMesh(newVoxel);
+        this.editingContext.updateVoxelMesh(newVoxel);
 
         // Switch to dragging the new voxel's same edge on the same face
         this.dragVoxel = newVoxel;
@@ -1442,7 +1607,7 @@ export class VoxelEditor {
         this.dragEdge = edge;
         this.justExtended = true;
 
-        this.world.setSelection(newVoxel.getKey(), face, edge);
+        this.editingContext.setSelection(newVoxel.getKey(), face, edge);
     }
 
     /**
@@ -1484,7 +1649,7 @@ export class VoxelEditor {
 
         if (gridHit) {
             const key = VoxelWorld.getKey(gridHit.x, gridHit.y, gridHit.z);
-            const gridIsEmpty = !this.world.voxels.has(key);
+            const gridIsEmpty = !this.editingContext.voxels.has(key);
 
             if (gridIsEmpty) {
                 if (!voxelHit) {
@@ -1588,9 +1753,9 @@ export class VoxelEditor {
                 if (this.isFaceAtBoundary(this.dragVoxel, this.dragFace)) {
                     // Face is at boundary - check if we can extrude to neighbor
                     const neighborPos = this.dragVoxel.getNeighborPosition(this.dragFace);
-                    const wouldCrossMirror = this.world.wouldCrossMirror(neighborPos.x, neighborPos.y, neighborPos.z);
+                    const wouldCrossMirror = this.editingContext.wouldCrossMirror(neighborPos.x, neighborPos.y, neighborPos.z);
 
-                    if (this.world.isNeighborEmpty(this.dragVoxel, this.dragFace) && !wouldCrossMirror) {
+                    if (this.editingContext.isNeighborEmpty(this.dragVoxel, this.dragFace) && !wouldCrossMirror) {
                         // Use fill extrude if enabled, otherwise single extrude
                         if (this.fillExtrudeEnabled) {
                             this.fillExtrude(this.dragVoxel, this.dragFace);
@@ -1619,7 +1784,7 @@ export class VoxelEditor {
         this.fillExtrudeAccumulator = 0;
 
         // Clear fill group selection
-        this.world.clearFillGroupSelection();
+        this.editingContext.clearFillGroupSelection();
     }
 
     /**
@@ -1651,11 +1816,11 @@ export class VoxelEditor {
         voxel.corners[cornerIdx][axisIndex] = boundary;
 
         voxel.updateFlags();
-        this.world.updateVoxelMesh(voxel);
+        this.editingContext.updateVoxelMesh(voxel);
 
         // Handle mirror mode
-        if (this.world.mirrorEnabled) {
-            this.world.updateAllMirrors();
+        if (this.editingContext.mirrorEnabled) {
+            this.editingContext.updateAllMirrors();
         }
     }
 
@@ -1726,11 +1891,11 @@ export class VoxelEditor {
         voxel.corners[cornerIdx1][axisIndex] = boundary;
 
         voxel.updateFlags();
-        this.world.updateVoxelMesh(voxel);
+        this.editingContext.updateVoxelMesh(voxel);
 
         // Handle mirror mode
-        if (this.world.mirrorEnabled) {
-            this.world.updateAllMirrors();
+        if (this.editingContext.mirrorEnabled) {
+            this.editingContext.updateAllMirrors();
         }
     }
 
@@ -1764,11 +1929,11 @@ export class VoxelEditor {
         }
 
         voxel.updateFlags();
-        this.world.updateVoxelMesh(voxel);
+        this.editingContext.updateVoxelMesh(voxel);
 
         // Handle mirror mode
-        if (this.world.mirrorEnabled) {
-            this.world.updateAllMirrors();
+        if (this.editingContext.mirrorEnabled) {
+            this.editingContext.updateAllMirrors();
         }
     }
 
@@ -1815,16 +1980,16 @@ export class VoxelEditor {
 
         // Check if the new voxel is valid
         if (newVoxel.isCollapsed()) {
-            this.world.removeVoxel(newVoxel.x, newVoxel.y, newVoxel.z);
+            this.editingContext.removeVoxel(newVoxel.x, newVoxel.y, newVoxel.z);
             return;
         }
 
-        this.world.updateVoxelMesh(newVoxel);
+        this.editingContext.updateVoxelMesh(newVoxel);
 
         // Select the new voxel's opposite face (the face pointing back toward the source)
         const oppositeFace = OPPOSITE_FACE[face];
         const key = VoxelWorld.getKey(neighborPos.x, neighborPos.y, neighborPos.z);
-        this.world.setSelection(key, oppositeFace, Edge.None);
+        this.editingContext.setSelection(key, oppositeFace, Edge.None);
     }
 
     /**
@@ -1845,39 +2010,40 @@ export class VoxelEditor {
             const neighborPos = voxel.getNeighborPosition(voxelFace);
 
             // Check if neighbor space is empty and won't cross mirror
-            const wouldCrossMirror = this.world.wouldCrossMirror(neighborPos.x, neighborPos.y, neighborPos.z);
-            if (!this.world.isNeighborEmpty(voxel, voxelFace) || wouldCrossMirror) {
+            const wouldCrossMirror = this.editingContext.wouldCrossMirror(neighborPos.x, neighborPos.y, neighborPos.z);
+            if (!this.editingContext.isNeighborEmpty(voxel, voxelFace) || wouldCrossMirror) {
                 continue;
             }
 
-            // Create new voxel
+            // Create new voxel - forceInheritMaterial=true for fill extrude
             const newVoxel = this.createExtendedVoxel(
                 voxel,
                 neighborPos.x,
                 neighborPos.y,
                 neighborPos.z,
                 voxelFace,
-                1.0
+                1.0,
+                true // forceInheritMaterial for fill extrude
             );
 
             if (newVoxel && !newVoxel.isCollapsed()) {
-                this.world.updateVoxelMesh(newVoxel);
+                this.editingContext.updateVoxelMesh(newVoxel);
                 lastNewVoxel = newVoxel;
             } else if (newVoxel) {
-                this.world.removeVoxel(newVoxel.x, newVoxel.y, newVoxel.z);
+                this.editingContext.removeVoxel(newVoxel.x, newVoxel.y, newVoxel.z);
             }
         }
 
         // Handle mirror mode
-        if (this.world.mirrorEnabled) {
-            this.world.updateAllMirrors();
+        if (this.editingContext.mirrorEnabled) {
+            this.editingContext.updateAllMirrors();
         }
 
         // Select the last created voxel
         if (lastNewVoxel) {
             const oppositeFace = OPPOSITE_FACE[face];
             const key = lastNewVoxel.getKey();
-            this.world.setSelection(key, oppositeFace, Edge.None);
+            this.editingContext.setSelection(key, oppositeFace, Edge.None);
         }
     }
 
@@ -1990,7 +2156,7 @@ export class VoxelEditor {
             const ny = voxel.y + dir[1];
             const nz = voxel.z + dir[2];
             const key = VoxelWorld.getKey(nx, ny, nz);
-            const neighbor = this.world.voxels.get(key);
+            const neighbor = this.editingContext.voxels.get(key);
             if (neighbor) {
                 neighbors.push(neighbor);
             }
@@ -2004,6 +2170,37 @@ export class VoxelEditor {
      */
     setFillExtrudeEnabled(enabled) {
         this.fillExtrudeEnabled = enabled;
+    }
+
+    /**
+     * Set the current tool mode
+     * @param {string} mode - 'build', 'delete', or 'paint'
+     */
+    setToolMode(mode) {
+        this.toolMode = mode;
+
+        // Clear any selection when switching tools
+        if (mode !== 'build') {
+            this.clearFaceSelection();
+        }
+    }
+
+    /**
+     * Set the paint material for Paint mode
+     * @param {ProceduralMaterial} material - The material to use for painting
+     */
+    setPaintMaterial(material) {
+        this.paintMaterial = material;
+    }
+
+    /**
+     * Set the build material for Build mode
+     * @param {ProceduralMaterial} material - The material to use for new voxels
+     * @param {string} materialId - The material ID for serialization
+     */
+    setBuildMaterial(material, materialId) {
+        this.buildMaterial = material;
+        this.buildMaterialId = materialId;
     }
 
     /**
@@ -2099,8 +2296,8 @@ export class VoxelEditor {
             type = 'face';
 
             // Check if Fill Extrude should show multiple faces
+            // Don't require isFaceAtBoundary - indicator should show for partial voxels too
             if (this.fillExtrudeEnabled &&
-                this.isFaceAtBoundary(voxel, face) &&
                 !this.isFaceBeveled(voxel, face)) {
                 isMultiFace = true;
                 type = 'fillFace';
@@ -2155,6 +2352,33 @@ export class VoxelEditor {
             this.hoverIndicator.position.set(0, 0, 0);
         } else {
             this.hoverIndicator.position.set(voxel.x, voxel.y, voxel.z);
+        }
+
+        // If editing a model, transform the indicator to world space
+        if (this.isEditingModel && this.editingModel && this.editingModel.meshGroup) {
+            const meshGroup = this.editingModel.meshGroup;
+
+            if (isMultiFace) {
+                // For multi-face, copy the model's transform to the indicator
+                // The geometry vertices are in model-local space
+                this.hoverIndicator.position.copy(meshGroup.position);
+                this.hoverIndicator.rotation.copy(meshGroup.rotation);
+                this.hoverIndicator.scale.copy(meshGroup.scale);
+            } else {
+                // For single face indicator, transform the voxel position through model's matrix
+                const worldPos = new THREE.Vector3(voxel.x, voxel.y, voxel.z);
+                meshGroup.updateMatrixWorld(true);
+                worldPos.applyMatrix4(meshGroup.matrixWorld);
+                this.hoverIndicator.position.copy(worldPos);
+
+                // Also apply rotation and scale from the model
+                this.hoverIndicator.rotation.copy(meshGroup.rotation);
+                this.hoverIndicator.scale.copy(meshGroup.scale);
+            }
+        } else {
+            // When not editing a model, reset any transforms
+            this.hoverIndicator.rotation.set(0, 0, 0);
+            this.hoverIndicator.scale.set(1, 1, 1);
         }
 
         // Show indicator
@@ -2418,7 +2642,7 @@ export class VoxelEditor {
             return false;
         }
 
-        this.world.flipFaceDiagonal(this.hoveredVoxelKey, this.hoveredFace);
+        this.editingContext.flipFaceDiagonal(this.hoveredVoxelKey, this.hoveredFace);
         return true;
     }
 
@@ -2436,6 +2660,84 @@ export class VoxelEditor {
             this.gridIndicator.geometry.dispose();
             this.gridIndicator.material.dispose();
         }
+    }
+
+    // ==================== PAINT MODE ====================
+
+    /**
+     * Paint a voxel with the current paint material
+     */
+    paintVoxel(voxel) {
+        if (!voxel) return;
+
+        // Use MaterialManager if available
+        if (this.materialManager) {
+            this.materialManager.paintVoxel(voxel);
+
+            // Also update mirrored voxel if mirror mode is enabled
+            if (this.editingContext.mirrorEnabled) {
+                const mirrorPos = this.editingContext.getMirroredPosition(voxel.x, voxel.y, voxel.z);
+                if (mirrorPos.x !== voxel.x || mirrorPos.y !== voxel.y || mirrorPos.z !== voxel.z) {
+                    const mirrorKey = VoxelWorld.getKey(mirrorPos.x, mirrorPos.y, mirrorPos.z);
+                    const mirrorVoxel = this.editingContext.voxels.get(mirrorKey);
+                    if (mirrorVoxel) {
+                        this.materialManager.paintVoxel(mirrorVoxel);
+                    }
+                }
+                this.editingContext.updateAllMirrors();
+            }
+            return;
+        }
+
+        // Legacy path: use paintMaterial directly
+        if (!this.paintMaterial) return;
+
+        // Store the material on the voxel
+        voxel.material = this.paintMaterial;
+        voxel.materialId = this.paintMaterial.definition?.id || 'custom';
+
+        // Update the voxel's mesh material
+        const key = voxel.getKey();
+        const mesh = this.editingContext.meshes.get(key);
+        if (mesh) {
+            mesh.material = this.paintMaterial.material;
+        }
+
+        // Also update mirrored voxel if mirror mode is enabled
+        if (this.editingContext.mirrorEnabled) {
+            const mirrorPos = this.editingContext.getMirroredPosition(voxel.x, voxel.y, voxel.z);
+            if (mirrorPos.x !== voxel.x || mirrorPos.y !== voxel.y || mirrorPos.z !== voxel.z) {
+                const mirrorKey = VoxelWorld.getKey(mirrorPos.x, mirrorPos.y, mirrorPos.z);
+                const mirrorVoxel = this.editingContext.voxels.get(mirrorKey);
+                if (mirrorVoxel) {
+                    mirrorVoxel.material = this.paintMaterial;
+                    mirrorVoxel.materialId = this.paintMaterial.definition?.id || 'custom';
+                    const mirrorMesh = this.editingContext.meshes.get(mirrorKey);
+                    if (mirrorMesh) {
+                        mirrorMesh.material = this.paintMaterial.material;
+                    }
+                }
+            }
+            // Update visual mirrors too
+            this.editingContext.updateAllMirrors();
+        }
+    }
+
+    /**
+     * Pick the material from a voxel (color picker tool)
+     * Dispatches a custom event that main.js listens to
+     */
+    pickMaterialFromVoxel(voxel) {
+        if (!voxel) return;
+
+        // Get the material ID from the voxel (if it has one)
+        const materialId = voxel.materialId || 'solid-gray';
+
+        // Dispatch event for main.js to handle
+        const event = new CustomEvent('materialPicked', {
+            detail: { materialId, voxel }
+        });
+        this.domElement.dispatchEvent(event);
     }
 
     // ==================== SHIFT+CLICK FACE SELECTION ====================
@@ -2475,6 +2777,11 @@ export class VoxelEditor {
             this.selectedFaces.push({ voxel, face });
             console.log('[Selection] Selected face', key, 'total:', this.selectedFaces.length);
             this.updateSelectionIndicators();
+
+            // Notify callback that a face was selected
+            if (this.onFaceSelected) {
+                this.onFaceSelected(this.selectedFaces.length);
+            }
         }
     }
 
@@ -2624,7 +2931,7 @@ export class VoxelEditor {
         }
 
         // Save undo state before extrusion
-        this.world.saveUndoState();
+        this.editingContext.saveUndoState();
 
         // Check if all selected faces have the same direction
         const firstFace = this.selectedFaces[0].face;
@@ -2666,23 +2973,25 @@ export class VoxelEditor {
                 const newFaces = [];
                 for (const { voxel, face: voxelFace } of workingFaces) {
                     const neighborPos = voxel.getNeighborPosition(voxelFace);
-                    const wouldCrossMirror = this.world.wouldCrossMirror(neighborPos.x, neighborPos.y, neighborPos.z);
+                    const wouldCrossMirror = this.editingContext.wouldCrossMirror(neighborPos.x, neighborPos.y, neighborPos.z);
 
-                    if (!this.world.isNeighborEmpty(voxel, voxelFace) || wouldCrossMirror) {
+                    if (!this.editingContext.isNeighborEmpty(voxel, voxelFace) || wouldCrossMirror) {
                         continue;
                     }
 
+                    // forceInheritMaterial=true to inherit material from source voxel
                     const newVoxel = this.createExtendedVoxel(
                         voxel,
                         neighborPos.x,
                         neighborPos.y,
                         neighborPos.z,
                         voxelFace,
-                        1.0
+                        1.0,
+                        true // forceInheritMaterial for selection extrude
                     );
 
                     if (newVoxel && !newVoxel.isCollapsed()) {
-                        this.world.updateVoxelMesh(newVoxel);
+                        this.editingContext.updateVoxelMesh(newVoxel);
                         newFaces.push({ voxel: newVoxel, face: voxelFace });
                     }
                 }
@@ -2703,7 +3012,7 @@ export class VoxelEditor {
                     const oppositeFace = OPPOSITE_FACE[voxelFace];
                     const behindPos = voxel.getNeighborPosition(oppositeFace);
                     const behindKey = VoxelWorld.getKey(behindPos.x, behindPos.y, behindPos.z);
-                    const behindVoxel = this.world.voxels.get(behindKey);
+                    const behindVoxel = this.editingContext.voxels.get(behindKey);
 
                     if (behindVoxel && this.isFaceAtBoundary(behindVoxel, voxelFace)) {
                         nextFaces.push({ voxel: behindVoxel, face: voxelFace });
@@ -2711,7 +3020,7 @@ export class VoxelEditor {
                 }
 
                 for (const voxel of voxelsToRemove) {
-                    this.world.removeVoxel(voxel.x, voxel.y, voxel.z);
+                    this.editingContext.removeVoxel(voxel.x, voxel.y, voxel.z);
                 }
 
                 if (nextFaces.length > 0) {
@@ -2724,8 +3033,8 @@ export class VoxelEditor {
         }
 
         // Handle mirror mode
-        if (this.world.mirrorEnabled) {
-            this.world.updateAllMirrors();
+        if (this.editingContext.mirrorEnabled) {
+            this.editingContext.updateAllMirrors();
         }
 
         // Update selection to the new faces

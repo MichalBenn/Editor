@@ -10,7 +10,11 @@ export class VoxelWorld {
         this.scene = scene;
         this.voxels = new Map(); // key: "x,y,z" -> Voxel
 
-        // Materials - using MeshPhysicalMaterial as default
+        // Material Manager reference (set by main.js after construction)
+        this.materialManager = null;
+
+        // Legacy materials - using MeshPhysicalMaterial as default
+        // These are used when MaterialManager is not set
         this.physicalMaterial = new THREE.MeshPhysicalMaterial({
             color: 0x888888,
             roughness: 0.35,
@@ -24,7 +28,7 @@ export class VoxelWorld {
         // Matcap material (created when needed)
         this.matcapMaterial = null;
 
-        // Current active material
+        // Current active material (legacy, used when MaterialManager not available)
         this.defaultMaterial = this.physicalMaterial;
         this.materialType = 'physical';
 
@@ -80,43 +84,42 @@ export class VoxelWorld {
     }
 
     /**
-     * Create the visual mirror plane indicator (1 block high, fades at top)
+     * Create the mirror boundary line indicator (two colored lines)
      */
     createMirrorPlane() {
-        // Create a plane that spans the grid width and is 1 unit tall
-        // with vertex colors that fade from solid at bottom to transparent at top
-        const width = 20;
-        const height = 1;
-        const segments = 1;
+        const lineLength = 30;
+        const lineWidth = 0.04;
+        const lineHeight = 0.02;
 
-        const geometry = new THREE.PlaneGeometry(width, height, 1, 1);
+        // Create a group to hold both lines
+        this.mirrorLine = new THREE.Group();
+        this.mirrorLine.visible = false;
+        this.scene.add(this.mirrorLine);
 
-        // Set vertex colors - bottom vertices opaque, top vertices transparent
-        const colors = [];
-        const positions = geometry.attributes.position;
+        const geometry = new THREE.BoxGeometry(lineWidth, lineHeight, lineLength);
 
-        for (let i = 0; i < positions.count; i++) {
-            const y = positions.getY(i);
-            // y goes from -0.5 to 0.5 in local space
-            // We want bottom (y=-0.5) to be opaque, top (y=0.5) to be transparent
-            const alpha = 0.5 - y; // 1.0 at bottom, 0.0 at top
-            colors.push(0.3, 0.9, 0.7, alpha * 0.4); // Greenish tint like in the image
-        }
-
-        geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 4));
-
-        const material = new THREE.MeshBasicMaterial({
-            vertexColors: true,
+        // Teal line - source side (where you can build)
+        const tealMaterial = new THREE.MeshBasicMaterial({
+            color: 0x4ecdc4,
             transparent: true,
-            side: THREE.DoubleSide,
-            depthWrite: false
+            opacity: 0.9
         });
+        this.mirrorLineTeal = new THREE.Mesh(geometry, tealMaterial);
+        this.mirrorLineTeal.position.set(lineWidth / 2, 0, 0);
+        this.mirrorLine.add(this.mirrorLineTeal);
 
-        this.mirrorPlane = new THREE.Mesh(geometry, material);
-        this.mirrorPlane.visible = false;
-        this.scene.add(this.mirrorPlane);
+        // Red line - mirror side (where you can't build)
+        const redMaterial = new THREE.MeshBasicMaterial({
+            color: 0xff6b6b,
+            transparent: true,
+            opacity: 0.9
+        });
+        this.mirrorLineRed = new THREE.Mesh(geometry, redMaterial);
+        this.mirrorLineRed.position.set(-lineWidth / 2, 0, 0);
+        this.mirrorLine.add(this.mirrorLineRed);
 
-        this.updateMirrorPlanePosition();
+        // Keep mirrorPlane reference for compatibility
+        this.mirrorPlane = this.mirrorLine;
     }
 
     /**
@@ -160,27 +163,75 @@ export class VoxelWorld {
     }
 
     /**
-     * Update mirror plane visual position
+     * Get the appropriate material for a voxel, respecting matcap render mode
+     * When matcap mode is active, it overrides all per-voxel materials
+     * @param {Voxel} voxel - The voxel to get material for
+     * @returns {THREE.Material} The material to use
+     */
+    getMaterialForVoxel(voxel) {
+        // Matcap mode overrides everything
+        if (this.materialType === 'matcap' && this.matcapMaterial) {
+            return this.matcapMaterial;
+        }
+
+        // Normal material resolution
+        if (this.materialManager && voxel && voxel.materialId) {
+            return this.materialManager.getMaterialForVoxel(voxel);
+        } else if (voxel && voxel.material && voxel.material.material) {
+            return voxel.material.material;
+        } else if (this.materialManager) {
+            return this.materialManager.getDefaultMaterial();
+        } else {
+            return this.defaultMaterial;
+        }
+    }
+
+    /**
+     * Set a procedural material as the default material
+     * @param {ProceduralMaterial} proceduralMaterial - The procedural material to use
+     */
+    setProceduralMaterial(proceduralMaterial) {
+        if (!proceduralMaterial || !proceduralMaterial.material) return;
+
+        // Store reference
+        this.currentProceduralMaterial = proceduralMaterial;
+        this.defaultMaterial = proceduralMaterial.material;
+        this.selectedMaterial = this.defaultMaterial;
+
+        // Update all existing meshes
+        for (const mesh of this.meshes.values()) {
+            mesh.material = this.defaultMaterial;
+        }
+
+        // Update mirror meshes
+        for (const child of this.mirrorGroup.children) {
+            if (child.isMesh) {
+                child.material = this.defaultMaterial;
+            }
+        }
+    }
+
+    /**
+     * Update mirror boundary line position
      */
     updateMirrorPlanePosition() {
-        if (!this.mirrorPlane) return;
+        if (!this.mirrorLine) return;
 
-        // Position the plane at mirror boundary
-        // For X axis mirror at position 1, the plane should be at x=0.5 (between voxel 0 and 1)
-        const planeX = this.mirrorAxis === 'x' ? this.mirrorPosition - 0.5 : 0.5;
-        const planeZ = this.mirrorAxis === 'z' ? this.mirrorPosition - 0.5 : 0.5;
+        // The mirror boundary is at mirrorPosition - 0.5 (between voxels)
+        const boundary = this.mirrorPosition - 0.5;
 
-        // Position at y=0 so bottom is at y=-0.5 (grid level) and top at y=0.5
-        this.mirrorPlane.position.set(planeX, 0, planeZ);
-
-        // Rotate to face the correct direction
-        this.mirrorPlane.rotation.set(0, 0, 0);
         if (this.mirrorAxis === 'x') {
-            this.mirrorPlane.rotation.y = Math.PI / 2;
+            // Line runs along Z axis at the X boundary
+            this.mirrorLine.rotation.set(0, 0, 0);
+            this.mirrorLine.position.set(boundary, -0.48, 0);
+        } else if (this.mirrorAxis === 'z') {
+            // Line runs along X axis at the Z boundary
+            this.mirrorLine.rotation.set(0, Math.PI / 2, 0);
+            this.mirrorLine.position.set(0, -0.48, boundary);
         } else if (this.mirrorAxis === 'y') {
-            this.mirrorPlane.rotation.x = Math.PI / 2;
+            // Y axis mirror - hide line
+            this.mirrorLine.visible = false;
         }
-        // Z axis - default orientation
     }
 
     /**
@@ -259,16 +310,27 @@ export class VoxelWorld {
 
         // Copy and mirror the faceFlipped states
         // When mirroring, faces perpendicular to the mirror axis swap
+        // For faces PARALLEL to the mirror plane (where mirroredFace === f),
+        // we must INVERT the faceFlipped state to create a true mirror reflection
         for (let f = 0; f < 6; f++) {
             const mirroredFace = this.getMirroredFace(f);
-            mirroredVoxel.faceFlipped[mirroredFace] = voxel.faceFlipped[f];
+            if (mirroredFace === f) {
+                // Face is parallel to mirror plane - invert the diagonal for true reflection
+                mirroredVoxel.faceFlipped[mirroredFace] = !voxel.faceFlipped[f];
+            } else {
+                // Face is perpendicular to mirror plane - keep the same state
+                mirroredVoxel.faceFlipped[mirroredFace] = voxel.faceFlipped[f];
+            }
         }
 
         // Build geometry
         const geometry = this.geometryBuilder.buildVoxelGeometry(mirroredVoxel);
 
-        // Create mesh with slightly transparent material to indicate it's a mirror
-        const mesh = new THREE.Mesh(geometry, this.defaultMaterial);
+        // Determine material (respects matcap render mode)
+        const material = this.getMaterialForVoxel(voxel);
+
+        // Create mesh (mirror inherits source material)
+        const mesh = new THREE.Mesh(geometry, material);
         mesh.position.set(mirrorPos.x, mirrorPos.y, mirrorPos.z);
         mesh.castShadow = true;
         mesh.receiveShadow = true;
@@ -302,15 +364,41 @@ export class VoxelWorld {
 
     /**
      * Get mirrored corners for a voxel
+     * When mirroring, we need to both negate the coordinate AND swap corner indices
+     * to maintain proper face winding order
+     *
+     * Corner layout:
+     * 0: TopLeftFront (-X,+Y,-Z), 1: TopRightFront (+X,+Y,-Z)
+     * 2: TopRightBack (+X,+Y,+Z), 3: TopLeftBack (-X,+Y,+Z)
+     * 4: BottomLeftBack (-X,-Y,+Z), 5: BottomRightBack (+X,-Y,+Z)
+     * 6: BottomRightFront (+X,-Y,-Z), 7: BottomLeftFront (-X,-Y,-Z)
      */
     getMirroredCorners(corners) {
         const axisIndex = this.mirrorAxis === 'x' ? 0 : (this.mirrorAxis === 'y' ? 1 : 2);
 
-        return corners.map(corner => {
-            const mirrored = [...corner];
-            mirrored[axisIndex] = -mirrored[axisIndex];
-            return mirrored;
-        });
+        // Define which corners swap with each other for each axis
+        let swapMap;
+        if (this.mirrorAxis === 'x') {
+            // X-axis: swap left/right corners
+            swapMap = [1, 0, 3, 2, 5, 4, 7, 6];
+        } else if (this.mirrorAxis === 'y') {
+            // Y-axis: swap top/bottom corners
+            swapMap = [7, 6, 5, 4, 3, 2, 1, 0];
+        } else {
+            // Z-axis: swap front/back corners
+            swapMap = [3, 2, 1, 0, 7, 6, 5, 4];
+        }
+
+        // Create new corners array with swapped positions and negated coordinates
+        const mirrored = new Array(8);
+        for (let i = 0; i < 8; i++) {
+            const sourceIndex = swapMap[i];
+            const corner = [...corners[sourceIndex]];
+            corner[axisIndex] = -corner[axisIndex];
+            mirrored[i] = corner;
+        }
+
+        return mirrored;
     }
 
     /**
@@ -421,17 +509,38 @@ export class VoxelWorld {
 
             // Create mirrored corners
             const mirroredCorners = this.getMirroredCorners(voxel.corners);
+
+            // Create mirrored faceFlipped states
+            // For faces PARALLEL to the mirror plane, we must INVERT the faceFlipped state
+            const mirroredFaceFlipped = [false, false, false, false, false, false];
+            for (let f = 0; f < 6; f++) {
+                const mirroredFace = this.getMirroredFace(f);
+                if (mirroredFace === f) {
+                    // Face is parallel to mirror plane - invert for true reflection
+                    mirroredFaceFlipped[mirroredFace] = !voxel.faceFlipped[f];
+                } else {
+                    // Face is perpendicular to mirror plane - keep the same
+                    mirroredFaceFlipped[mirroredFace] = voxel.faceFlipped[f];
+                }
+            }
+
             voxelsToAdd.push({
                 x: mirrorPos.x,
                 y: mirrorPos.y,
                 z: mirrorPos.z,
-                corners: mirroredCorners
+                corners: mirroredCorners,
+                faceFlipped: mirroredFaceFlipped
             });
         }
 
         // Add all the mirrored voxels as real voxels
         for (const v of voxelsToAdd) {
-            this.addVoxel(v.x, v.y, v.z, v.corners);
+            const newVoxel = this.addVoxel(v.x, v.y, v.z, v.corners);
+            // Apply the mirrored faceFlipped states
+            if (newVoxel && v.faceFlipped) {
+                newVoxel.faceFlipped = v.faceFlipped;
+                this.updateVoxelMesh(newVoxel);
+            }
         }
 
         // Disable mirror mode
@@ -472,8 +581,14 @@ export class VoxelWorld {
 
     /**
      * Add a new voxel
+     * @param {number} x - X coordinate
+     * @param {number} y - Y coordinate
+     * @param {number} z - Z coordinate
+     * @param {Array} corners - Optional corners array
+     * @param {ProceduralMaterial} material - Optional material to apply
+     * @param {string} materialId - Optional material ID for serialization
      */
-    addVoxel(x, y, z, corners = null) {
+    addVoxel(x, y, z, corners = null, material = null, materialId = null) {
         const key = VoxelWorld.getKey(x, y, z);
 
         if (this.voxels.has(key)) {
@@ -481,6 +596,13 @@ export class VoxelWorld {
         }
 
         const voxel = new Voxel(x, y, z, corners);
+
+        // Apply material before first mesh update
+        if (material) {
+            voxel.material = material;
+            voxel.materialId = materialId;
+        }
+
         this.voxels.set(key, voxel);
         this.updateVoxelMesh(voxel);
 
@@ -565,9 +687,8 @@ export class VoxelWorld {
         // Build new geometry
         const geometry = this.geometryBuilder.buildVoxelGeometry(voxel);
 
-        // Determine material
-        const isSelected = key === this.selectedVoxelKey;
-        const material = isSelected ? this.selectedMaterial : this.defaultMaterial;
+        // Determine material (respects matcap render mode)
+        const material = this.getMaterialForVoxel(voxel);
 
         // Create mesh
         const mesh = new THREE.Mesh(geometry, material);
@@ -627,11 +748,13 @@ export class VoxelWorld {
      * Set selection
      */
     setSelection(voxelKey, face, edge = Edge.None) {
-        // Clear previous selection
+        // Clear previous selection - restore the voxel's actual material
         if (this.selectedVoxelKey && this.selectedVoxelKey !== voxelKey) {
+            const prevVoxel = this.voxels.get(this.selectedVoxelKey);
             const prevMesh = this.meshes.get(this.selectedVoxelKey);
-            if (prevMesh) {
-                prevMesh.material = this.defaultMaterial;
+            if (prevMesh && prevVoxel) {
+                // Restore the voxel's actual material (respecting matcap render mode)
+                prevMesh.material = this.getMaterialForVoxel(prevVoxel);
             }
         }
 
@@ -639,11 +762,8 @@ export class VoxelWorld {
         this.selectedFace = face;
         this.selectedEdge = edge;
 
-        // Apply selection material
-        const mesh = this.meshes.get(voxelKey);
-        if (mesh) {
-            mesh.material = this.selectedMaterial;
-        }
+        // Note: We no longer change the material for selection
+        // Selection is now indicated via edge highlighting only
     }
 
     /**
@@ -651,9 +771,11 @@ export class VoxelWorld {
      */
     clearSelection() {
         if (this.selectedVoxelKey) {
+            const voxel = this.voxels.get(this.selectedVoxelKey);
             const mesh = this.meshes.get(this.selectedVoxelKey);
-            if (mesh) {
-                mesh.material = this.defaultMaterial;
+            if (mesh && voxel) {
+                // Restore the voxel's actual material (respecting matcap mode)
+                mesh.material = this.getMaterialForVoxel(voxel);
             }
         }
 
@@ -692,8 +814,10 @@ export class VoxelWorld {
                 // Don't clear the main selected voxel
                 if (key !== this.selectedVoxelKey) {
                     const mesh = this.meshes.get(key);
-                    if (mesh) {
-                        mesh.material = this.defaultMaterial;
+                    const voxel = this.voxels.get(key);
+                    if (mesh && voxel) {
+                        // Restore proper material (respecting matcap mode)
+                        mesh.material = this.getMaterialForVoxel(voxel);
                     }
                 }
             }

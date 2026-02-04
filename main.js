@@ -1,9 +1,14 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { TransformControls } from 'three/addons/controls/TransformControls.js';
-import { VoxelWorld } from './VoxelWorld.js';
-import { VoxelEditor } from './VoxelEditor.js';
+import { VoxelWorld } from './VoxelWorld.js?v=12';
+import { VoxelEditor } from './VoxelEditor.js?v=8';
 import { GameItemManager, PrimitiveType } from './GameItem.js';
+import { ModelManager } from './ModelManager.js';
+// Legacy material imports (kept for backward compatibility)
+import { MaterialLibrary as LegacyMaterialLibrary, ProceduralMaterial, DefaultMaterials, MaterialType } from './ProceduralMaterial.js';
+// New material system
+import { MaterialManager, MaterialLibrary, LayeredMaterial, LayerType, BlendMode, LayerTypeDefinitions, MaterialCategory, MaterialMaker, updateElementThumbnail, ColorWheelPicker } from './materials/index.js';
 
 // Matcap textures - using data URLs for common matcaps
 const matcapData = {
@@ -169,6 +174,7 @@ directionalLight.shadow.camera.left = -30;
 directionalLight.shadow.camera.right = 30;
 directionalLight.shadow.camera.top = 30;
 directionalLight.shadow.camera.bottom = -30;
+directionalLight.shadow.bias = -0.005;  // Prevent shadow acne (self-shadowing artifacts)
 scene.add(directionalLight);
 
 // Secondary fill light - subtle from opposite side
@@ -263,11 +269,205 @@ controls.mouseButtons = {
 const voxelWorld = new VoxelWorld(scene);
 const voxelEditor = new VoxelEditor(voxelWorld, camera, renderer.domElement);
 
+// Expose for debugging
+window.voxelWorld = voxelWorld;
+window.voxelEditor = voxelEditor;
+
+// Initialize the new material system
+const materialManager = new MaterialManager(voxelWorld);
+
+// Wire up MaterialManager to VoxelWorld and VoxelEditor
+voxelWorld.materialManager = materialManager;
+voxelEditor.materialManager = materialManager;
+// Note: modelManager.materialManager is set after modelManager is created below
+
+// Initialize Material Maker UI
+const materialMaker = new MaterialMaker(materialManager);
+materialMaker.onMaterialCreated = (inventoryId, material) => {
+    console.log('Material created:', inventoryId, material.name);
+    refreshMaterialsUI();
+    selectMaterial(inventoryId);
+};
+materialMaker.onMaterialUpdated = (inventoryId, material) => {
+    console.log('Material updated:', inventoryId, material.name);
+    materialManager.refreshMaterialVoxels(inventoryId);
+    refreshMaterialsUI();
+};
+// Load any saved custom materials from IndexedDB
+materialMaker.loadSavedMaterials().then(() => {
+    console.log('Loaded saved custom materials');
+    refreshMaterialsUI();
+});
+
 // Add initial voxel on top of the grid (Y=0, mesh offset makes bottom at Y=0)
-voxelWorld.addVoxel(0, 0, 0);
+const initialVoxel = voxelWorld.addVoxel(0, 0, 0);
+// Apply default material to initial voxel
+materialManager.applyBuildMaterial(initialVoxel);
+voxelWorld.updateVoxelMesh(initialVoxel);
 
 // Initialize game item manager
 const gameItemManager = new GameItemManager(scene);
+
+// Initialize model manager for editable voxel models
+const modelManager = new ModelManager(scene);
+modelManager.materialManager = materialManager;
+
+// Track whether we're editing a model vs world
+let isEditingModel = false;
+let currentEditingModel = null;
+
+// Model placement mode - for placing new models
+let isPlacingModel = false;
+let modelPlacementGhost = null;  // Ghost cube indicator
+
+/**
+ * Create the ghost cube for model placement visualization
+ */
+function createModelPlacementGhost() {
+    if (modelPlacementGhost) return;
+
+    const geometry = new THREE.BoxGeometry(1, 1, 1);
+    const material = new THREE.MeshBasicMaterial({
+        color: 0x4ecdc4,
+        transparent: true,
+        opacity: 0.5,
+        wireframe: false
+    });
+
+    // Create a group with solid ghost and wireframe outline
+    modelPlacementGhost = new THREE.Group();
+
+    const solidMesh = new THREE.Mesh(geometry, material);
+    modelPlacementGhost.add(solidMesh);
+
+    // Add wireframe outline
+    const wireframeMaterial = new THREE.MeshBasicMaterial({
+        color: 0xffffff,
+        wireframe: true,
+        transparent: true,
+        opacity: 0.8
+    });
+    const wireframe = new THREE.Mesh(geometry, wireframeMaterial);
+    modelPlacementGhost.add(wireframe);
+
+    modelPlacementGhost.visible = false;
+    scene.add(modelPlacementGhost);
+}
+
+/**
+ * Enter model placement mode - shows ghost cube for user to choose position
+ */
+function enterModelPlacementMode() {
+    isPlacingModel = true;
+
+    // Create ghost cube if not exists
+    createModelPlacementGhost();
+    modelPlacementGhost.visible = true;
+
+    // Position initially at origin
+    modelPlacementGhost.position.set(0, 0.5, 0);
+
+    // Change cursor to indicate placement mode
+    renderer.domElement.style.cursor = 'crosshair';
+
+    console.log('Entered model placement mode - click to place');
+}
+
+/**
+ * Exit model placement mode without creating a model
+ */
+function cancelModelPlacement() {
+    isPlacingModel = false;
+    if (modelPlacementGhost) {
+        modelPlacementGhost.visible = false;
+    }
+    renderer.domElement.style.cursor = '';
+    console.log('Model placement cancelled');
+}
+
+/**
+ * Finalize model placement - create model at ghost position
+ */
+function finalizeModelPlacement() {
+    if (!isPlacingModel || !modelPlacementGhost) return;
+
+    const position = {
+        x: modelPlacementGhost.position.x,
+        y: modelPlacementGhost.position.y,
+        z: modelPlacementGhost.position.z
+    };
+
+    // Exit placement mode
+    isPlacingModel = false;
+    modelPlacementGhost.visible = false;
+    renderer.domElement.style.cursor = '';
+
+    // Create the model at this position
+    const model = modelManager.createModel(position, true);
+
+    // Set the model's material type to match the current world render mode
+    if (voxelWorld.materialType === 'matcap' && voxelWorld.matcapMaterial) {
+        model.setMaterialType('matcap', voxelWorld.matcapMaterial);
+    }
+
+    // Enter edit mode for the new model
+    enterModelEdit(model);
+
+    console.log('Model created at', position);
+    return model;
+}
+
+/**
+ * Update ghost cube position based on mouse position
+ */
+function updateModelPlacementGhost(event) {
+    if (!isPlacingModel || !modelPlacementGhost) return;
+
+    const rect = renderer.domElement.getBoundingClientRect();
+    const mouse = new THREE.Vector2(
+        ((event.clientX - rect.left) / rect.width) * 2 - 1,
+        -((event.clientY - rect.top) / rect.height) * 2 + 1
+    );
+
+    const raycaster = new THREE.Raycaster();
+    raycaster.setFromCamera(mouse, camera);
+
+    // First, try to hit existing voxels to place on top of them
+    const worldMeshes = voxelWorld.getMeshes();
+    const modelMeshes = modelManager.getAllMeshes();
+    const allMeshes = [...worldMeshes, ...modelMeshes];
+
+    const intersects = raycaster.intersectObjects(allMeshes);
+
+    if (intersects.length > 0) {
+        const hit = intersects[0];
+        const normal = hit.face.normal.clone();
+        const voxelPos = hit.object.position.clone();
+
+        // Place ghost adjacent to the hit face (exactly on top of the face)
+        // Voxel mesh positions are at integer coordinates, geometry is centered
+        const newPos = voxelPos.clone().add(normal);
+        modelPlacementGhost.position.set(
+            Math.round(newPos.x),
+            Math.round(newPos.y),  // No offset - voxels are centered at integer coords
+            Math.round(newPos.z)
+        );
+    } else {
+        // Fallback: raycast to grid plane (Y=-0.5, where the visual grid is)
+        const gridPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0.5); // Plane at y=-0.5
+        const intersection = new THREE.Vector3();
+
+        if (raycaster.ray.intersectPlane(gridPlane, intersection)) {
+            // Snap to integer grid coordinates
+            // Voxels at y=0 have bottom at y=-0.5, sitting on the grid
+            modelPlacementGhost.position.set(
+                Math.round(intersection.x),
+                0,  // Voxel at y=0 sits on the grid (bottom at y=-0.5)
+                Math.round(intersection.z)
+            );
+        }
+    }
+}
 
 // Transform controls for game items
 const transformControls = new TransformControls(camera, renderer.domElement);
@@ -275,16 +475,328 @@ transformControls.addEventListener('dragging-changed', (event) => {
     controls.enabled = !event.value; // Disable orbit controls while dragging
     voxelEditor.enabled = !event.value; // Disable voxel editing while dragging
 });
+scene.add(transformControls);
+
+// Snap to grid settings (active by default)
+let snapEnabled = true;
+const SNAP_TRANSLATE = 1;  // 1 grid unit
+const SNAP_ROTATE = Math.PI / 4;  // 45 degrees
+const SNAP_SCALE = 0.25;  // 25% increments
+
+function applySnapSettings() {
+    if (snapEnabled) {
+        transformControls.setTranslationSnap(SNAP_TRANSLATE);
+        transformControls.setRotationSnap(SNAP_ROTATE);
+        transformControls.setScaleSnap(SNAP_SCALE);
+    } else {
+        transformControls.setTranslationSnap(null);
+        transformControls.setRotationSnap(null);
+        transformControls.setScaleSnap(null);
+    }
+}
+
+// Apply snap settings on init
+applySnapSettings();
+
+// Selection bounding box wireframe (faint outline when model is selected)
+let selectionBoxHelper = null;
+let selectionBoxMaterial = new THREE.LineBasicMaterial({
+    color: 0xffffff,
+    transparent: true,
+    opacity: 0.4,
+    depthTest: false,
+    linewidth: 1
+});
+
+// Pivot helper for centering gizmo on model content
+let gizmoPivot = new THREE.Object3D();
+scene.add(gizmoPivot);
+
+/**
+ * Update selection box to match model bounds
+ */
+function updateSelectionBox(model) {
+    // Remove existing box
+    if (selectionBoxHelper) {
+        scene.remove(selectionBoxHelper);
+        selectionBoxHelper.geometry.dispose();
+        selectionBoxHelper = null;
+    }
+
+    if (!model || !model.voxelGroup) return;
+
+    // Ensure world matrices are up to date
+    model.meshGroup.updateMatrixWorld(true);
+
+    // Compute bounding box in MODEL-LOCAL space (not world space)
+    // This way the box rotates with the model
+    const box = new THREE.Box3();
+    const inverseModelMatrix = new THREE.Matrix4().copy(model.meshGroup.matrixWorld).invert();
+
+    model.voxelGroup.traverse((child) => {
+        if (child.isMesh) {
+            child.geometry.computeBoundingBox();
+            if (child.geometry.boundingBox) {
+                const childBox = child.geometry.boundingBox.clone();
+                // Transform to world space, then back to model-local space
+                childBox.applyMatrix4(child.matrixWorld);
+                childBox.applyMatrix4(inverseModelMatrix);
+                box.union(childBox);
+            }
+        }
+    });
+
+    if (box.isEmpty()) return;
+
+    // Create wireframe box in local space
+    const size = new THREE.Vector3();
+    const localCenter = new THREE.Vector3();
+    box.getSize(size);
+    box.getCenter(localCenter);
+
+    // Add small padding
+    size.addScalar(0.05);
+
+    const boxGeom = new THREE.BoxGeometry(size.x, size.y, size.z);
+    const edges = new THREE.EdgesGeometry(boxGeom);
+    selectionBoxHelper = new THREE.LineSegments(edges, selectionBoxMaterial);
+
+    // Position the box at local center, then apply model's transform
+    selectionBoxHelper.position.copy(localCenter);
+
+    // Apply model's world transform to the selection box
+    selectionBoxHelper.applyMatrix4(model.meshGroup.matrixWorld);
+
+    selectionBoxHelper.renderOrder = 999;
+    scene.add(selectionBoxHelper);
+
+    // Calculate world-space center for gizmo pivot
+    const worldCenter = localCenter.clone().applyMatrix4(model.meshGroup.matrixWorld);
+
+    // Update gizmo pivot to center of model (in world space)
+    gizmoPivot.position.copy(worldCenter);
+    gizmoPivot.rotation.copy(model.meshGroup.rotation);
+    gizmoPivot.userData.modelOffset = localCenter.clone();
+    gizmoPivot.userData.attachedModel = model;
+}
+
+// Sync model transforms when gizmo pivot moves
 transformControls.addEventListener('objectChange', () => {
     // Sync item data from mesh after transform
     if (gameItemManager.selectedItem) {
+        // Snap game item position to grid if snap is enabled
+        if (snapEnabled && currentTransformMode === 'translate') {
+            const mesh = gameItemManager.selectedItem.mesh;
+            mesh.position.x = Math.round(mesh.position.x);
+            mesh.position.y = Math.round(mesh.position.y);
+            mesh.position.z = Math.round(mesh.position.z);
+        }
         gameItemManager.selectedItem.syncFromMesh();
     }
+    // Sync model data from gizmo pivot after transform
+    if (gizmoPivot.userData.attachedModel && !isEditingModel) {
+        const model = gizmoPivot.userData.attachedModel;
+        const offset = gizmoPivot.userData.modelOffset;
+        if (offset) {
+            // Sync rotation to model
+            model.meshGroup.rotation.copy(gizmoPivot.rotation);
+
+            // Calculate new position accounting for rotation around center
+            const rotatedOffset = offset.clone().applyEuler(gizmoPivot.rotation);
+            model.meshGroup.position.copy(gizmoPivot.position).sub(rotatedOffset);
+
+            // Snap model position to grid if snap is enabled
+            if (snapEnabled && currentTransformMode === 'translate') {
+                model.meshGroup.position.x = Math.round(model.meshGroup.position.x);
+                model.meshGroup.position.y = Math.round(model.meshGroup.position.y);
+                model.meshGroup.position.z = Math.round(model.meshGroup.position.z);
+            }
+
+            model.syncFromMesh();
+
+            // Recalculate pivot position to stay centered on model
+            if (snapEnabled && currentTransformMode === 'translate') {
+                gizmoPivot.position.copy(model.meshGroup.position).add(rotatedOffset);
+            }
+
+            // Update selection box
+            if (selectionBoxHelper) {
+                selectionBoxHelper.position.copy(gizmoPivot.position);
+                selectionBoxHelper.rotation.copy(gizmoPivot.rotation);
+            }
+        }
+    }
 });
-scene.add(transformControls);
 
 // Track current transform mode
 let currentTransformMode = 'translate'; // 'translate' or 'rotate'
+
+// ==========================================
+// Tool Mode System
+// ==========================================
+// Tool modes: 'build', 'delete', 'paint'
+let currentTool = 'build';
+let paintMaterialId = 'solid-gray'; // Default paint material
+let paintMaterial = null; // ProceduralMaterial instance for painting
+
+// ==========================================
+// Model Editing Mode System
+// ==========================================
+
+/**
+ * Enter model edit mode - switch editor context to a VoxelModel
+ * @param {VoxelModel} model - The model to edit
+ */
+function enterModelEdit(model) {
+    if (!model) return;
+
+    isEditingModel = true;
+    currentEditingModel = model;
+
+    // Detach transform controls when entering edit mode
+    transformControls.detach();
+
+    // Hide selection bounding box during model editing
+    if (selectionBoxHelper) {
+        selectionBoxHelper.visible = false;
+    }
+
+    // Hide transform mode panel during model editing
+    showTransformModePanel(false);
+
+    // Hide world voxels completely
+    setWorldVisible(false);
+
+    // Hide all other models - only show the one being edited
+    modelManager.models.forEach(m => {
+        if (m !== model) {
+            m.meshGroup.visible = false;
+        }
+    });
+
+    // Set camera orbit target to model center
+    const modelCenter = new THREE.Vector3();
+    const box = new THREE.Box3().setFromObject(model.meshGroup);
+    box.getCenter(modelCenter);
+    controls.target.copy(modelCenter);
+    controls.update();
+
+    // Switch editor context to the model
+    voxelEditor.setEditingContext(model, model);
+
+    // Start editing in ModelManager
+    modelManager.startEditing(model);
+
+    // Update UI to show model edit mode
+    updateModelEditUI(true);
+
+    console.log('Entered model edit mode:', model.name);
+}
+
+/**
+ * Exit model edit mode - return to world editing
+ */
+function exitModelEdit() {
+    if (!isEditingModel) return;
+
+    const model = currentEditingModel;
+
+    // Restore world visibility
+    setWorldVisible(true);
+
+    // Show all models again
+    modelManager.models.forEach(m => {
+        m.meshGroup.visible = true;
+    });
+
+    // Reset camera orbit target to world center
+    controls.target.set(0, 0, 0);
+    controls.update();
+
+    // Return editor to world context
+    voxelEditor.setEditingContext(voxelWorld, null);
+
+    // Stop editing in ModelManager
+    modelManager.stopEditing();
+
+    // Clear editing flags BEFORE selecting so selectModel sees correct state
+    isEditingModel = false;
+    currentEditingModel = null;
+
+    // If model exists, select it with proper gizmo centering
+    if (model) {
+        selectModel(model);
+    }
+
+    // Update UI to show world edit mode
+    updateModelEditUI(false);
+
+    console.log('Exited model edit mode');
+}
+
+/**
+ * Set world voxels visibility (hide when editing model)
+ * @param {boolean} visible - Whether world voxels should be visible
+ */
+function setWorldVisible(visible) {
+    // Hide/show all world voxel meshes
+    for (const mesh of voxelWorld.meshes.values()) {
+        mesh.visible = visible;
+    }
+    // Hide/show edge lines
+    if (voxelWorld.edgeGroup) {
+        voxelWorld.edgeGroup.visible = visible;
+    }
+    // Hide/show mirror meshes
+    if (voxelWorld.mirrorGroup) {
+        voxelWorld.mirrorGroup.visible = visible;
+    }
+    if (voxelWorld.mirrorEdgeGroup) {
+        voxelWorld.mirrorEdgeGroup.visible = visible;
+    }
+    // Hide/show the main voxel group
+    if (voxelWorld.voxelGroup) {
+        voxelWorld.voxelGroup.visible = visible;
+    }
+}
+
+/**
+ * Update UI to reflect model edit state
+ * @param {boolean} editing - Whether we're in model edit mode
+ */
+function updateModelEditUI(editing) {
+    const modelEditIndicator = document.getElementById('model-edit-indicator');
+    if (modelEditIndicator) {
+        modelEditIndicator.style.display = editing ? 'flex' : 'none';
+        if (editing && currentEditingModel) {
+            const nameSpan = modelEditIndicator.querySelector('.model-name');
+            if (nameSpan) {
+                nameSpan.textContent = currentEditingModel.name;
+            }
+        }
+    }
+
+    // Update toolbar visibility if needed
+    const modelToolbar = document.getElementById('model-toolbar');
+    if (modelToolbar) {
+        modelToolbar.style.display = editing ? 'flex' : 'none';
+    }
+}
+
+/**
+ * Start model creation - enters placement mode for user to choose position
+ */
+function createNewModel() {
+    // Disable mirror mode if active before creating a new model
+    if (voxelWorld.mirrorEnabled) {
+        voxelWorld.disableMirror();
+        hideMirrorModeLabel();
+        document.getElementById('toolMirrorMode')?.classList.remove('active');
+    }
+
+    // Enter placement mode instead of immediately creating
+    enterModelPlacementMode();
+}
 
 // Handle window resize
 window.addEventListener('resize', () => {
@@ -335,10 +847,54 @@ function setupLightingControls() {
         mainIntensityVal.textContent = value.toFixed(1);
     });
 
-    // Main light color
-    const mainLightColor = document.getElementById('mainLightColor');
-    mainLightColor.addEventListener('input', (e) => {
-        directionalLight.color.set(e.target.value);
+    // Get all color picker elements upfront (needed for cross-referencing toggle behavior)
+    const mainLightColorContainer = document.getElementById('mainLightColorWheel');
+    const mainLightColorHex = document.getElementById('mainLightColorHex');
+    const mainLightColorSwatch = document.getElementById('mainLightColorSwatch');
+    const mainLightColorPanel = document.getElementById('mainLightColorPanel');
+    const fillLightColorContainer = document.getElementById('fillLightColorWheel');
+    const fillLightColorHex = document.getElementById('fillLightColorHex');
+    const fillLightColorSwatch = document.getElementById('fillLightColorSwatch');
+    const fillLightColorPanel = document.getElementById('fillLightColorPanel');
+
+    let mainLightColorPicker = null;
+    let fillLightColorPicker = null;
+
+    // Main light color - collapsible ColorWheelPicker
+    if (mainLightColorContainer) {
+        mainLightColorPicker = new ColorWheelPicker(mainLightColorContainer, {
+            size: 120,
+            wheelWidth: 15,
+            initialColor: '#ffffff',
+            onChange: (color) => {
+                directionalLight.color.set(color);
+                mainLightColorHex.value = color;
+                mainLightColorSwatch.style.backgroundColor = color;
+            }
+        });
+    }
+
+    // Toggle main light color panel on swatch click
+    mainLightColorSwatch?.addEventListener('click', () => {
+        const isExpanded = mainLightColorPanel.classList.contains('expanded');
+        mainLightColorPanel.classList.toggle('expanded');
+        mainLightColorSwatch.classList.toggle('active');
+
+        // Close fill light panel if opening main light panel
+        if (!isExpanded) {
+            fillLightColorPanel?.classList.remove('expanded');
+            fillLightColorSwatch?.classList.remove('active');
+        }
+    });
+
+    // Hex input listener for main light
+    mainLightColorHex?.addEventListener('input', (e) => {
+        const color = e.target.value;
+        if (/^#[0-9A-Fa-f]{6}$/.test(color)) {
+            mainLightColorPicker?.setColor(color);
+            directionalLight.color.set(color);
+            mainLightColorSwatch.style.backgroundColor = color;
+        }
     });
 
     // Main light azimuth (horizontal angle)
@@ -377,10 +933,41 @@ function setupLightingControls() {
         fillIntensityVal.textContent = value.toFixed(2);
     });
 
-    // Fill light color
-    const fillLightColor = document.getElementById('fillLightColor');
-    fillLightColor.addEventListener('input', (e) => {
-        fillLight.color.set(e.target.value);
+    // Fill light color - collapsible ColorWheelPicker
+    if (fillLightColorContainer) {
+        fillLightColorPicker = new ColorWheelPicker(fillLightColorContainer, {
+            size: 120,
+            wheelWidth: 15,
+            initialColor: '#4488ff',
+            onChange: (color) => {
+                fillLight.color.set(color);
+                fillLightColorHex.value = color;
+                fillLightColorSwatch.style.backgroundColor = color;
+            }
+        });
+    }
+
+    // Toggle fill light color panel on swatch click
+    fillLightColorSwatch?.addEventListener('click', () => {
+        const isExpanded = fillLightColorPanel.classList.contains('expanded');
+        fillLightColorPanel.classList.toggle('expanded');
+        fillLightColorSwatch.classList.toggle('active');
+
+        // Close main light panel if opening fill light panel
+        if (!isExpanded) {
+            mainLightColorPanel?.classList.remove('expanded');
+            mainLightColorSwatch?.classList.remove('active');
+        }
+    });
+
+    // Hex input listener for fill light
+    fillLightColorHex?.addEventListener('input', (e) => {
+        const color = e.target.value;
+        if (/^#[0-9A-Fa-f]{6}$/.test(color)) {
+            fillLightColorPicker?.setColor(color);
+            fillLight.color.set(color);
+            fillLightColorSwatch.style.backgroundColor = color;
+        }
     });
 
     // Fill light azimuth
@@ -401,23 +988,6 @@ function setupLightingControls() {
         fillElevationVal.textContent = fillLightElevation + '°';
     });
 
-    // Material roughness
-    const roughness = document.getElementById('roughness');
-    const roughnessVal = document.getElementById('roughnessVal');
-    roughness.addEventListener('input', (e) => {
-        const value = parseFloat(e.target.value);
-        voxelWorld.defaultMaterial.roughness = value;
-        roughnessVal.textContent = value.toFixed(2);
-    });
-
-    // Material clearcoat
-    const clearcoat = document.getElementById('clearcoat');
-    const clearcoatVal = document.getElementById('clearcoatVal');
-    clearcoat.addEventListener('input', (e) => {
-        const value = parseFloat(e.target.value);
-        voxelWorld.defaultMaterial.clearcoat = value;
-        clearcoatVal.textContent = value.toFixed(1);
-    });
 }
 
 setupLightingControls();
@@ -433,11 +1003,38 @@ materialTypeSelect.addEventListener('change', (e) => {
         // Switch back to physical material
         physicalSettings.style.display = 'block';
         voxelWorld.setMaterialType('physical');
+
+        // Update all models to physical mode
+        modelManager.models.forEach(model => {
+            model.setMaterialType('physical');
+        });
+
+        // Re-enable paint tool button
+        if (toolPaint) {
+            toolPaint.disabled = false;
+            toolPaint.classList.remove('disabled');
+        }
     } else {
         // Switch to matcap
         physicalSettings.style.display = 'none';
         const matcapTexture = matcapData[type];
         voxelWorld.setMaterialType('matcap', matcapTexture);
+
+        // Update all models to matcap mode
+        modelManager.models.forEach(model => {
+            model.setMaterialType('matcap', voxelWorld.matcapMaterial);
+        });
+
+        // Disable paint tool button (paint doesn't make sense in matcap mode)
+        if (toolPaint) {
+            toolPaint.disabled = true;
+            toolPaint.classList.add('disabled');
+        }
+
+        // If paint tool is active, switch to build
+        if (currentTool === 'paint') {
+            setTool('build');
+        }
     }
 });
 
@@ -474,10 +1071,18 @@ window.addEventListener('keydown', (e) => {
         if (voxelWorld.mirrorEnabled) {
             // Disable mirror mode - convert mirrors to real voxels
             voxelWorld.disableMirror();
+            hideMirrorModeLabel();
+            document.getElementById('toolMirrorMode')?.classList.remove('active');
         } else {
             // Show dialog to choose how to enable mirror mode
             showMirrorDialog();
         }
+    }
+
+    // Create new model with N key
+    if (e.code === 'KeyN' && !e.ctrlKey && !e.shiftKey) {
+        e.preventDefault();
+        createNewModel();
     }
 
     // Export with E key
@@ -500,14 +1105,6 @@ window.addEventListener('keydown', (e) => {
         toggleFillExtrude();
     }
 
-    // Numeric input extrusion with I key (when faces are selected)
-    if (e.code === 'KeyI') {
-        if (voxelEditor.hasSelection()) {
-            e.preventDefault();
-            showExtrudeInputDialog();
-        }
-    }
-
     // Toggle controls with Tab key
     if (e.code === 'Tab') {
         e.preventDefault();
@@ -517,6 +1114,24 @@ window.addEventListener('keydown', (e) => {
     // Toggle game items panel with P key
     if (e.code === 'KeyP') {
         gameItemsPanel.classList.toggle('visible');
+        materialsPanel.classList.remove('visible'); // Close materials if open
+    }
+
+    // Toggle materials panel with T key
+    if (e.code === 'KeyT') {
+        materialsPanel.classList.toggle('visible');
+        gameItemsPanel.classList.remove('visible'); // Close game items if open
+    }
+
+    // Tool shortcuts: 1=Build, 2=Delete, 3=Paint
+    if (e.code === 'Digit1') {
+        setTool('build');
+    }
+    if (e.code === 'Digit2') {
+        setTool('delete');
+    }
+    if (e.code === 'Digit3') {
+        setTool('paint');
     }
 
     // Save model with Ctrl+S
@@ -557,19 +1172,19 @@ function toggleControlsInfo() {
 showMoreBtn.addEventListener('click', toggleControlsInfo);
 showLessBtn.addEventListener('click', toggleControlsInfo);
 
-// Fill Extrude toggle
-const fillExtrudeStatus = document.getElementById('fillExtrudeStatus');
-const fillExtrudeToggle = document.getElementById('fillExtrudeToggle');
-
+// Fill Extrude toggle (used by Q keyboard shortcut)
 function toggleFillExtrude() {
     const enabled = !voxelEditor.fillExtrudeEnabled;
     voxelEditor.setFillExtrudeEnabled(enabled);
-    fillExtrudeStatus.textContent = enabled ? 'ON' : 'OFF';
-    fillExtrudeStatus.style.color = enabled ? '#4ecdc4' : '';
-}
-
-if (fillExtrudeToggle) {
-    fillExtrudeToggle.addEventListener('click', toggleFillExtrude);
+    // Update toolbar button state
+    const toolFillExtrudeBtn = document.getElementById('toolFillExtrude');
+    if (toolFillExtrudeBtn) {
+        toolFillExtrudeBtn.classList.toggle('active', enabled);
+    }
+    // When enabling fill extrude, also switch to build mode
+    if (enabled) {
+        setTool('build');
+    }
 }
 
 // Mirror mode dialog handling
@@ -588,14 +1203,43 @@ function hideMirrorDialog() {
     dialogOpen = false;
 }
 
+// Mirror mode label
+const mirrorModeLabel = document.getElementById('mirrorModeLabel');
+
+function showMirrorModeLabel() {
+    if (mirrorModeLabel) {
+        mirrorModeLabel.classList.remove('hidden');
+    }
+}
+
+function hideMirrorModeLabel() {
+    if (mirrorModeLabel) {
+        mirrorModeLabel.classList.add('hidden');
+    }
+}
+
+// Exit mirror mode button
+const exitMirrorBtn = document.getElementById('exitMirrorBtn');
+if (exitMirrorBtn) {
+    exitMirrorBtn.addEventListener('click', () => {
+        voxelWorld.disableMirror();
+        hideMirrorModeLabel();
+        document.getElementById('toolMirrorMode')?.classList.remove('active');
+    });
+}
+
 mirrorCleanupBtn.addEventListener('click', () => {
     hideMirrorDialog();
     voxelWorld.enableMirrorWithCleanup('x', 0); // Mirror at x=0
+    showMirrorModeLabel();
+    document.getElementById('toolMirrorMode')?.classList.add('active');
 });
 
 mirrorCleanBtn.addEventListener('click', () => {
     hideMirrorDialog();
     voxelWorld.enableMirrorClean('x', 0); // Mirror at x=0
+    showMirrorModeLabel();
+    document.getElementById('toolMirrorMode')?.classList.add('active');
 });
 
 mirrorCancelBtn.addEventListener('click', () => {
@@ -666,6 +1310,7 @@ function createExtrudeInputDialog() {
     });
 
     cancelBtn.addEventListener('click', () => {
+        voxelEditor.clearFaceSelection(); // Clear selection on cancel
         hideExtrudeInputDialog();
     });
 
@@ -679,6 +1324,7 @@ function createExtrudeInputDialog() {
             }
             hideExtrudeInputDialog();
         } else if (e.code === 'Escape') {
+            voxelEditor.clearFaceSelection(); // Clear selection on escape
             hideExtrudeInputDialog();
         }
     });
@@ -707,6 +1353,12 @@ function hideExtrudeInputDialog() {
     }
     dialogOpen = false;
 }
+
+// Auto-show extrude dialog when Shift+click selects a face
+voxelEditor.onFaceSelected = (faceCount) => {
+    // Show extrude dialog automatically when a face is selected
+    showExtrudeInputDialog();
+};
 
 // Music Player
 const musicSelect = document.getElementById('musicSelect');
@@ -840,14 +1492,6 @@ transformRotateBtn.addEventListener('click', () => {
     setTransformMode('rotate');
 });
 
-function setTransformMode(mode) {
-    currentTransformMode = mode;
-    transformControls.setMode(mode);
-
-    transformTranslateBtn.classList.toggle('active', mode === 'translate');
-    transformRotateBtn.classList.toggle('active', mode === 'rotate');
-}
-
 // Delete selected item
 deleteGameItemBtn.addEventListener('click', () => {
     deleteSelectedGameItem();
@@ -858,6 +1502,22 @@ function deleteSelectedGameItem() {
         transformControls.detach();
         gameItemManager.removeItem(gameItemManager.selectedItem.id);
         updateGameItemsUI();
+    }
+}
+
+function deleteSelectedModel() {
+    if (modelManager.selectedModel && !isEditingModel) {
+        transformControls.detach();
+        // Clear selection box
+        if (selectionBoxHelper) {
+            scene.remove(selectionBoxHelper);
+            selectionBoxHelper.geometry.dispose();
+            selectionBoxHelper = null;
+        }
+        // Remove the model
+        modelManager.removeModel(modelManager.selectedModel.id);
+        // Hide transform mode panel
+        showTransformModePanel(false);
     }
 }
 
@@ -886,6 +1546,15 @@ function addGameItem(type) {
 }
 
 function selectGameItem(item) {
+    // Clear model selection state
+    gizmoPivot.userData.attachedModel = null;
+    gizmoPivot.userData.modelOffset = null;
+    if (selectionBoxHelper) {
+        scene.remove(selectionBoxHelper);
+        selectionBoxHelper.geometry.dispose();
+        selectionBoxHelper = null;
+    }
+
     gameItemManager.selectItem(item);
 
     if (item) {
@@ -975,15 +1644,132 @@ function handleGameItemClick(event) {
     return false;
 }
 
-// Intercept clicks to check for game items first
+// Handle clicking on voxel models in the scene (when not in model edit mode)
+function handleModelClick(event) {
+    if (event.button !== 0) return false;
+    if (!voxelEditor.enabled) return false; // Don't interfere with transform controls
+    if (isEditingModel) return false; // Don't select models while editing one
+
+    const rect = renderer.domElement.getBoundingClientRect();
+    const mouse = new THREE.Vector2(
+        ((event.clientX - rect.left) / rect.width) * 2 - 1,
+        -((event.clientY - rect.top) / rect.height) * 2 + 1
+    );
+
+    const raycaster = new THREE.Raycaster();
+    raycaster.setFromCamera(mouse, camera);
+
+    // Use ModelManager's raycast to find clicked model
+    const hit = modelManager.raycast(raycaster);
+
+    if (hit && hit.model) {
+        selectModel(hit.model);
+        return true;
+    }
+
+    return false;
+}
+
+// Select a voxel model
+function selectModel(model) {
+    // Clear game item selection
+    if (gameItemManager.selectedItem) {
+        selectGameItem(null);
+    }
+
+    // Clear previous selection state
+    gizmoPivot.userData.attachedModel = null;
+    gizmoPivot.userData.modelOffset = null;
+
+    modelManager.selectModel(model);
+
+    if (model && !isEditingModel) {
+        // Update selection box and center gizmo on model
+        updateSelectionBox(model);
+
+        // Sync pivot rotation with model
+        gizmoPivot.rotation.copy(model.meshGroup.rotation);
+
+        // Attach transform controls to the centered pivot
+        transformControls.attach(gizmoPivot);
+        transformControls.setMode(currentTransformMode);
+
+        // Show transform mode panel
+        showTransformModePanel(true);
+    } else {
+        transformControls.detach();
+        // Clear selection box when deselecting
+        if (selectionBoxHelper) {
+            scene.remove(selectionBoxHelper);
+            selectionBoxHelper.geometry.dispose();
+            selectionBoxHelper = null;
+        }
+        // Hide transform mode panel
+        showTransformModePanel(false);
+    }
+}
+
+// Intercept clicks to check for game items and models first
 renderer.domElement.addEventListener('mousedown', (event) => {
     if (event.button === 0 && event.shiftKey === false) {
-        // Check if we clicked on a game item
+        // Check if we're in model placement mode first
+        if (isPlacingModel) {
+            finalizeModelPlacement();
+            event.stopPropagation();
+            event.preventDefault();
+            return;
+        }
+
+        // Check if we clicked on a game item first
         if (handleGameItemClick(event)) {
             event.stopPropagation();
+            return;
+        }
+        // Check if we clicked on a model (when not editing)
+        if (!isEditingModel && handleModelClick(event)) {
+            event.stopPropagation();
+            return;
+        }
+
+        // If we didn't click on a game item or model, deselect any selected model
+        // This happens when clicking on empty space, grid, or world voxels
+        // But don't deselect if clicking on the transform gizmo (axis is set when hovering gizmo)
+        if (!isEditingModel && modelManager.selectedModel && !transformControls.axis) {
+            selectModel(null);
+            // Stop propagation so clicking to deselect doesn't also place a block
+            event.stopPropagation();
+            return;
         }
     }
 }, true);
+
+// Mouse move for model placement ghost
+renderer.domElement.addEventListener('mousemove', (event) => {
+    if (isPlacingModel) {
+        updateModelPlacementGhost(event);
+    }
+});
+
+// Double-click to enter model edit mode
+renderer.domElement.addEventListener('dblclick', (event) => {
+    if (event.button === 0 && !isEditingModel) {
+        const rect = renderer.domElement.getBoundingClientRect();
+        const mouse = new THREE.Vector2(
+            ((event.clientX - rect.left) / rect.width) * 2 - 1,
+            -((event.clientY - rect.top) / rect.height) * 2 + 1
+        );
+
+        const raycaster = new THREE.Raycaster();
+        raycaster.setFromCamera(mouse, camera);
+
+        // Use ModelManager's raycast to find clicked model
+        const hit = modelManager.raycast(raycaster);
+
+        if (hit && hit.model) {
+            enterModelEdit(hit.model);
+        }
+    }
+});
 
 // Keyboard shortcuts for game items
 window.addEventListener('keydown', (e) => {
@@ -1004,21 +1790,929 @@ window.addEventListener('keydown', (e) => {
         setTransformMode('rotate');
     }
 
-    // Delete or Backspace - delete selected game item
-    if ((e.code === 'Delete' || e.code === 'Backspace') && gameItemManager.selectedItem) {
-        e.preventDefault();
-        deleteSelectedGameItem();
+    // Delete or Backspace - delete selected game item or model
+    if (e.code === 'Delete' || e.code === 'Backspace') {
+        if (gameItemManager.selectedItem) {
+            e.preventDefault();
+            deleteSelectedGameItem();
+        } else if (modelManager.selectedModel && !isEditingModel) {
+            e.preventDefault();
+            deleteSelectedModel();
+        }
     }
 
-    // Escape - deselect game item
-    if (e.code === 'Escape' && gameItemManager.selectedItem) {
-        selectGameItem(null);
+    // Escape - cancel placement mode OR deselect game item OR exit model edit mode
+    if (e.code === 'Escape') {
+        if (isPlacingModel) {
+            // Cancel model placement mode first
+            cancelModelPlacement();
+        } else if (isEditingModel) {
+            // Exit model edit mode
+            exitModelEdit();
+        } else if (gameItemManager.selectedItem) {
+            selectGameItem(null);
+        } else if (modelManager.selectedModel) {
+            // Deselect model and detach transform controls
+            transformControls.detach();
+            modelManager.clearSelection();
+        }
+    }
+
+    // G key - translate mode for selected model or game item
+    if (e.code === 'KeyG' && !e.ctrlKey && modelManager.selectedModel && !isEditingModel) {
+        e.preventDefault();
+        transformControls.setMode('translate');
+        currentTransformMode = 'translate';
+    }
+
+    // R key - rotate mode for selected model
+    if (e.code === 'KeyR' && modelManager.selectedModel && !isEditingModel) {
+        e.preventDefault();
+        transformControls.setMode('rotate');
+        currentTransformMode = 'rotate';
+    }
+
+    // Enter - enter edit mode for selected model
+    if (e.code === 'Enter' && modelManager.selectedModel && !isEditingModel) {
+        e.preventDefault();
+        enterModelEdit(modelManager.selectedModel);
     }
 });
 
 window.addEventListener('keyup', (e) => {
     keysPressed[e.code] = false;
 });
+
+// ==========================================
+// Toolbar - Tool Mode System
+// ==========================================
+
+const toolBuild = document.getElementById('toolBuild');
+const toolDelete = document.getElementById('toolDelete');
+const toolPaint = document.getElementById('toolPaint');
+const paintColorIndicator = document.getElementById('paintColorIndicator');
+
+/**
+ * Set the current tool mode
+ */
+function setTool(toolName) {
+    // Prevent selecting paint tool when matcap mode is active
+    if (toolName === 'paint' && voxelWorld.materialType === 'matcap') {
+        return; // Do nothing, paint is disabled in matcap mode
+    }
+
+    currentTool = toolName;
+
+    // Update toolbar button states (only for tool buttons, not toggle buttons)
+    document.querySelectorAll('.tool-btn:not(.toggle-btn)').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.tool === toolName);
+    });
+
+    // Update voxel editor mode
+    voxelEditor.setToolMode(toolName);
+
+    // Update cursor style
+    const canvas = renderer.domElement;
+    switch (toolName) {
+        case 'build':
+            canvas.style.cursor = 'crosshair';
+            break;
+        case 'delete':
+            canvas.style.cursor = 'not-allowed';
+            break;
+        case 'paint':
+            canvas.style.cursor = 'cell';
+            break;
+        default:
+            canvas.style.cursor = 'default';
+    }
+
+    // If switching to paint, open materials panel and disable fill extrude
+    if (toolName === 'paint') {
+        materialsPanel.classList.add('visible');
+        // Disable fill extrude when entering paint mode
+        if (voxelEditor.fillExtrudeEnabled) {
+            voxelEditor.setFillExtrudeEnabled(false);
+            const toolFillExtrudeBtn = document.getElementById('toolFillExtrude');
+            if (toolFillExtrudeBtn) {
+                toolFillExtrudeBtn.classList.remove('active');
+            }
+        }
+    }
+}
+
+// Toolbar button click handlers
+toolBuild.addEventListener('click', () => setTool('build'));
+toolDelete.addEventListener('click', () => setTool('delete'));
+toolPaint.addEventListener('click', () => setTool('paint'));
+
+// Fill Extrude toggle button
+const toolFillExtrude = document.getElementById('toolFillExtrude');
+if (toolFillExtrude) {
+    toolFillExtrude.addEventListener('click', () => {
+        const enabled = !voxelEditor.fillExtrudeEnabled;
+        voxelEditor.setFillExtrudeEnabled(enabled);
+        toolFillExtrude.classList.toggle('active', enabled);
+        // When enabling fill extrude, also switch to build mode
+        if (enabled) {
+            setTool('build');
+        }
+    });
+}
+
+// Render panel toggle button
+const toolRender = document.getElementById('toolRender');
+const renderPanel = document.getElementById('renderPanel');
+if (toolRender && renderPanel) {
+    toolRender.addEventListener('click', () => {
+        renderPanel.classList.toggle('visible');
+        toolRender.classList.toggle('active', renderPanel.classList.contains('visible'));
+    });
+}
+
+// Close render panel button
+const closeRenderPanel = document.getElementById('closeRenderPanel');
+if (closeRenderPanel && renderPanel) {
+    closeRenderPanel.addEventListener('click', () => {
+        renderPanel.classList.remove('visible');
+        toolRender?.classList.remove('active');
+    });
+}
+
+// Mirror Mode toggle button
+const toolMirrorMode = document.getElementById('toolMirrorMode');
+if (toolMirrorMode) {
+    toolMirrorMode.addEventListener('click', () => {
+        if (voxelWorld.mirrorEnabled) {
+            voxelWorld.disableMirror();
+            hideMirrorModeLabel();
+            toolMirrorMode.classList.remove('active');
+        } else {
+            showMirrorDialog();
+        }
+    });
+}
+
+// Generate Image button
+const toolGenerateImage = document.getElementById('toolGenerateImage');
+if (toolGenerateImage) {
+    toolGenerateImage.addEventListener('click', () => {
+        showGenerateDialog();
+    });
+}
+
+// Create Model button
+const toolCreateModel = document.getElementById('toolCreateModel');
+if (toolCreateModel) {
+    toolCreateModel.addEventListener('click', () => {
+        createNewModel();
+    });
+}
+
+// Exit Model button
+const exitModelBtn = document.getElementById('exitModelBtn');
+if (exitModelBtn) {
+    exitModelBtn.addEventListener('click', () => {
+        exitModelEdit();
+    });
+}
+
+// Transform Mode Panel
+const transformModePanel = document.getElementById('transformModePanel');
+const btnTranslate = document.getElementById('btnTranslate');
+const btnRotate = document.getElementById('btnRotate');
+const btnScale = document.getElementById('btnScale');
+
+/**
+ * Show or hide the transform mode panel
+ */
+function showTransformModePanel(show) {
+    if (transformModePanel) {
+        transformModePanel.classList.toggle('hidden', !show);
+    }
+}
+
+/**
+ * Set the transform mode and update UI
+ */
+function setTransformMode(mode) {
+    currentTransformMode = mode;
+    transformControls.setMode(mode);
+
+    // Update button states
+    if (btnTranslate) btnTranslate.classList.toggle('active', mode === 'translate');
+    if (btnRotate) btnRotate.classList.toggle('active', mode === 'rotate');
+    if (btnScale) btnScale.classList.toggle('active', mode === 'scale');
+}
+
+// Transform mode button handlers
+if (btnTranslate) {
+    btnTranslate.addEventListener('click', () => setTransformMode('translate'));
+}
+if (btnRotate) {
+    btnRotate.addEventListener('click', () => setTransformMode('rotate'));
+}
+if (btnScale) {
+    btnScale.addEventListener('click', () => setTransformMode('scale'));
+}
+
+// Snap toggle button
+const btnSnap = document.getElementById('btnSnap');
+
+function updateSnapButton() {
+    if (btnSnap) {
+        btnSnap.classList.toggle('active', snapEnabled);
+    }
+}
+
+function toggleSnap() {
+    snapEnabled = !snapEnabled;
+    applySnapSettings();
+    updateSnapButton();
+}
+
+if (btnSnap) {
+    btnSnap.addEventListener('click', toggleSnap);
+}
+
+// Initialize snap button state
+updateSnapButton();
+
+// Listen for material picked event (from color picker tool)
+renderer.domElement.addEventListener('materialPicked', (event) => {
+    const { materialId } = event.detail;
+    if (materialId && materialLibrary.get(materialId)) {
+        selectMaterial(materialId);
+        // Switch to paint tool after picking
+        setTool('paint');
+    }
+});
+
+/**
+ * Update paint material for the Paint tool
+ */
+function setPaintMaterial(materialId) {
+    paintMaterialId = materialId;
+
+    const matDef = materialLibrary.get(materialId);
+    if (matDef) {
+        paintMaterial = new ProceduralMaterial(matDef);
+        voxelEditor.setPaintMaterial(paintMaterial);
+
+        // Update paint color indicator
+        paintColorIndicator.style.background = getSwatchPreviewStyle(matDef);
+        // activeMaterialPreview removed - was for bottom-right materials button = getSwatchPreviewStyle(matDef);
+    }
+}
+
+// ==========================================
+// Materials Panel
+// ==========================================
+
+const materialsPanel = document.getElementById('materialsPanel');
+const closeMaterialsBtn = document.getElementById('closeMaterials');
+const materialEditor = document.getElementById('materialEditor');
+const editorMaterialName = document.getElementById('editorMaterialName');
+const editorProperties = document.getElementById('editorProperties');
+const closeEditorBtn = document.getElementById('closeEditor');
+
+// Initialize material library (using new system via materialManager)
+// Legacy materialLibrary for backward compatibility with old code
+const materialLibrary = new LegacyMaterialLibrary();
+let selectedMaterialId = 'solid-white';
+let currentProceduralMaterial = null;
+
+// Get the new material library from materialManager
+const newMaterialLibrary = materialManager.getLibrary();
+
+closeMaterialsBtn.addEventListener('click', () => {
+    materialsPanel.classList.remove('visible');
+});
+
+// Close material editor
+closeEditorBtn.addEventListener('click', () => {
+    materialEditor.style.display = 'none';
+});
+
+// Category collapse/expand
+document.querySelectorAll('.category-header').forEach(header => {
+    header.addEventListener('click', () => {
+        header.closest('.material-category').classList.toggle('collapsed');
+    });
+});
+
+// Add "Create Material" button to materials panel
+const materialsContent = document.querySelector('.materials-content');
+const addMaterialBtn = document.createElement('button');
+addMaterialBtn.className = 'add-material-btn';
+addMaterialBtn.innerHTML = '+ Create Material';
+addMaterialBtn.addEventListener('click', () => {
+    materialMaker.create();
+});
+materialsContent.appendChild(addMaterialBtn);
+
+/**
+ * Refresh the materials UI (called after material changes)
+ */
+function refreshMaterialsUI() {
+    populateMaterialSwatches();
+}
+
+/**
+ * Populate material swatches in the panel
+ * Uses the new MaterialManager inventory
+ */
+function populateMaterialSwatches() {
+    // Use new material system
+    const inventory = materialManager.getInventory();
+    const byCategory = {};
+
+    // Group by category
+    for (const mat of inventory) {
+        const cat = mat.category || 'custom';
+        if (!byCategory[cat]) byCategory[cat] = [];
+        byCategory[cat].push(mat);
+    }
+
+    // Map new categories to old container IDs
+    const categoryContainerMap = {
+        'solid': 'solidMaterials',
+        'pattern': 'patternMaterials',
+        'metal': 'metalMaterials',
+        'natural': 'patternMaterials', // Put natural in pattern for now
+        'custom': 'customMaterials'    // User-created materials
+    };
+
+    // Clear all containers first
+    for (const containerId of Object.values(categoryContainerMap)) {
+        const container = document.getElementById(containerId);
+        if (container) container.innerHTML = '';
+    }
+
+    // Populate
+    for (const [category, materials] of Object.entries(byCategory)) {
+        const containerId = categoryContainerMap[category] || 'patternMaterials';
+        const container = document.getElementById(containerId);
+        if (!container) continue;
+
+        for (const mat of materials) {
+            const swatch = createMaterialSwatchNew(mat);
+            container.appendChild(swatch);
+        }
+    }
+
+    // Show/hide the "My Materials" section based on whether there are custom materials
+    const customSection = document.getElementById('customMaterialsSection');
+    if (customSection) {
+        customSection.style.display = byCategory['custom']?.length > 0 ? 'block' : 'none';
+    }
+
+    // Also populate with legacy materials if new system is empty
+    if (inventory.length === 0) {
+        const categories = materialLibrary.getByCategory();
+        for (const [category, materials] of Object.entries(categories)) {
+            const container = document.getElementById(`${category}Materials`);
+            if (!container) continue;
+
+            container.innerHTML = '';
+
+            for (const mat of materials) {
+                const swatch = createMaterialSwatch(mat);
+                container.appendChild(swatch);
+            }
+        }
+    }
+}
+
+/**
+ * Create a material swatch for the new material system
+ */
+function createMaterialSwatchNew(material) {
+    const swatch = document.createElement('div');
+    swatch.className = 'material-swatch';
+    swatch.dataset.materialId = material.instanceId;
+
+    if (material.instanceId === materialManager.buildMaterialId) {
+        swatch.classList.add('selected');
+    }
+
+    // Create preview
+    const preview = document.createElement('div');
+    preview.className = 'swatch-preview';
+
+    // For custom materials with layers or special properties, render a proper thumbnail
+    const isCustom = material.category === 'custom';
+    const hasLayers = material.layers && material.layers.length > 0;
+    const hasEmissive = material.base.emissiveIntensity > 0;
+    const hasMetal = material.base.metalness > 0.3;
+
+    if (isCustom || hasLayers || hasEmissive || hasMetal) {
+        // Use 3D rendered thumbnail for complex materials
+        try {
+            updateElementThumbnail(material, preview);
+        } catch (e) {
+            console.warn('Failed to render thumbnail, using fallback color', e);
+            preview.style.background = material.getPreviewColor();
+        }
+    } else {
+        // Use simple color for basic solid materials
+        preview.style.background = material.getPreviewColor();
+    }
+
+    const name = document.createElement('div');
+    name.className = 'swatch-name';
+    name.textContent = material.name;
+
+    swatch.appendChild(preview);
+    swatch.appendChild(name);
+
+    // Click to select
+    swatch.addEventListener('click', () => {
+        selectMaterial(material.instanceId);
+    });
+
+    // Double-click to open editor
+    swatch.addEventListener('dblclick', () => {
+        openMaterialEditorNew(material.instanceId);
+    });
+
+    return swatch;
+}
+
+/**
+ * Create a single material swatch element
+ */
+function createMaterialSwatch(materialDef) {
+    const swatch = document.createElement('div');
+    swatch.className = 'material-swatch';
+    swatch.dataset.materialId = materialDef.id;
+
+    if (materialDef.id === selectedMaterialId) {
+        swatch.classList.add('selected');
+    }
+
+    // Create preview (simple colored div for now)
+    const preview = document.createElement('div');
+    preview.className = 'swatch-preview';
+    preview.style.background = getSwatchPreviewStyle(materialDef);
+
+    const name = document.createElement('div');
+    name.className = 'swatch-name';
+    name.textContent = materialDef.name;
+
+    swatch.appendChild(preview);
+    swatch.appendChild(name);
+
+    // Click to select
+    swatch.addEventListener('click', () => {
+        selectMaterial(materialDef.id);
+    });
+
+    // Double-click to open editor
+    swatch.addEventListener('dblclick', () => {
+        openMaterialEditor(materialDef.id);
+    });
+
+    return swatch;
+}
+
+/**
+ * Get CSS background for swatch preview based on material type
+ */
+function getSwatchPreviewStyle(materialDef) {
+    const params = materialDef.params;
+
+    switch (materialDef.type) {
+        case MaterialType.Solid:
+        case MaterialType.Metal:
+        case MaterialType.Fabric:
+            return params.color || '#ffffff';
+
+        case MaterialType.Gradient:
+            const dir = params.direction || 'vertical';
+            const angle = dir === 'vertical' ? '180deg' : dir === 'horizontal' ? '90deg' : '135deg';
+            return `linear-gradient(${angle}, ${params.colorTop || params.color1 || '#ffffff'}, ${params.colorBottom || params.color2 || '#000000'})`;
+
+        case MaterialType.Checker:
+            const c1 = params.color1 || '#ffffff';
+            const c2 = params.color2 || '#000000';
+            return `repeating-conic-gradient(${c1} 0% 25%, ${c2} 0% 50%) 50% / 20px 20px`;
+
+        case MaterialType.Noise:
+            // Approximate noise with gradient
+            const nc = params.color || '#888888';
+            return `radial-gradient(circle at 30% 30%, ${nc}, #333)`;
+
+        case MaterialType.Brick:
+            return `linear-gradient(90deg, ${params.brickColor || '#8B4513'} 0%, ${params.brickColor || '#8B4513'} 90%, ${params.mortarColor || '#cccccc'} 90%)`;
+
+        case MaterialType.Wood:
+            return `linear-gradient(90deg, ${params.color1 || '#8B5A2B'}, ${params.color2 || '#D2691E'}, ${params.color1 || '#8B5A2B'})`;
+
+        default:
+            return '#ffffff';
+    }
+}
+
+/**
+ * Select a material (for Paint and Build tools)
+ * @param {string} materialId - Can be either old definition ID or new inventory ID
+ */
+function selectMaterial(materialId) {
+    selectedMaterialId = materialId;
+
+    // Update swatch selection UI
+    document.querySelectorAll('.material-swatch').forEach(s => {
+        s.classList.toggle('selected', s.dataset.materialId === materialId);
+    });
+
+    // Try new material system first
+    const mat = materialManager.getMaterial(materialId);
+    if (mat) {
+        // It's a new system inventory ID
+        materialManager.setActiveMaterial(materialId);
+
+        // Update UI indicators
+        if (mat) {
+            paintColorIndicator.style.background = mat.getPreviewColor();
+            // activeMaterialPreview removed - was for bottom-right materials button = mat.getPreviewColor();
+        }
+    } else {
+        // Legacy: try old definition ID
+        // First check if we need to add it to inventory
+        const def = newMaterialLibrary.getDefinition(materialId);
+        if (def) {
+            const inventoryId = newMaterialLibrary.addToInventory(materialId);
+            materialManager.setActiveMaterial(inventoryId);
+
+            // Update UI
+            paintColorIndicator.style.background = def.base.color;
+            // activeMaterialPreview removed - was for bottom-right materials button = def.base.color;
+        } else {
+            // Fallback to old system
+            setPaintMaterial(materialId);
+
+            const matDef = materialLibrary.get(materialId);
+            if (matDef) {
+                const buildMaterial = new ProceduralMaterial(matDef);
+                voxelEditor.setBuildMaterial(buildMaterial, materialId);
+            }
+        }
+    }
+}
+
+/**
+ * Open the material editor for a specific material
+ */
+function openMaterialEditor(materialId) {
+    const matDef = materialLibrary.get(materialId);
+    if (!matDef) return;
+
+    editorMaterialName.textContent = matDef.name;
+    editorProperties.innerHTML = '';
+
+    // Create property controls based on material type
+    const params = matDef.params;
+
+    // Common properties
+    if (params.color !== undefined) {
+        addColorProperty('Color', params.color, (value) => {
+            params.color = value;
+            updateMaterialFromEditor(materialId);
+        });
+    }
+
+    if (params.color1 !== undefined) {
+        addColorProperty('Color 1', params.color1, (value) => {
+            params.color1 = value;
+            updateMaterialFromEditor(materialId);
+        });
+    }
+
+    if (params.color2 !== undefined) {
+        addColorProperty('Color 2', params.color2, (value) => {
+            params.color2 = value;
+            updateMaterialFromEditor(materialId);
+        });
+    }
+
+    if (params.colorTop !== undefined) {
+        addColorProperty('Top Color', params.colorTop, (value) => {
+            params.colorTop = value;
+            updateMaterialFromEditor(materialId);
+        });
+    }
+
+    if (params.colorBottom !== undefined) {
+        addColorProperty('Bottom Color', params.colorBottom, (value) => {
+            params.colorBottom = value;
+            updateMaterialFromEditor(materialId);
+        });
+    }
+
+    if (params.roughness !== undefined) {
+        addSliderProperty('Roughness', params.roughness, 0, 1, 0.05, (value) => {
+            params.roughness = value;
+            updateMaterialFromEditor(materialId);
+        });
+    }
+
+    if (params.metalness !== undefined) {
+        addSliderProperty('Metalness', params.metalness, 0, 1, 0.05, (value) => {
+            params.metalness = value;
+            updateMaterialFromEditor(materialId);
+        });
+    }
+
+    if (params.scale !== undefined) {
+        addSliderProperty('Scale', params.scale, 0.1, 10, 0.1, (value) => {
+            params.scale = value;
+            updateMaterialFromEditor(materialId);
+        });
+    }
+
+    if (params.noiseScale !== undefined) {
+        addSliderProperty('Noise Scale', params.noiseScale, 0.5, 20, 0.5, (value) => {
+            params.noiseScale = value;
+            updateMaterialFromEditor(materialId);
+        });
+    }
+
+    if (params.intensity !== undefined) {
+        addSliderProperty('Intensity', params.intensity, 0, 2, 0.1, (value) => {
+            params.intensity = value;
+            updateMaterialFromEditor(materialId);
+        });
+    }
+
+    // Brick-specific
+    if (params.brickColor !== undefined) {
+        addColorProperty('Brick Color', params.brickColor, (value) => {
+            params.brickColor = value;
+            updateMaterialFromEditor(materialId);
+        });
+    }
+
+    if (params.mortarColor !== undefined) {
+        addColorProperty('Mortar Color', params.mortarColor, (value) => {
+            params.mortarColor = value;
+            updateMaterialFromEditor(materialId);
+        });
+    }
+
+    if (params.mortarWidth !== undefined) {
+        addSliderProperty('Mortar Width', params.mortarWidth, 0.01, 0.2, 0.01, (value) => {
+            params.mortarWidth = value;
+            updateMaterialFromEditor(materialId);
+        });
+    }
+
+    materialEditor.style.display = 'block';
+}
+
+/**
+ * Add a color property control to the editor
+ */
+function addColorProperty(label, value, onChange) {
+    const row = document.createElement('div');
+    row.className = 'property-row';
+    row.innerHTML = `
+        <div class="property-label">
+            <span>${label}</span>
+        </div>
+        <input type="color" value="${value}">
+    `;
+
+    const input = row.querySelector('input');
+    input.addEventListener('input', (e) => {
+        onChange(e.target.value);
+    });
+
+    editorProperties.appendChild(row);
+}
+
+/**
+ * Add a slider property control to the editor
+ */
+function addSliderProperty(label, value, min, max, step, onChange) {
+    const row = document.createElement('div');
+    row.className = 'property-row';
+    row.innerHTML = `
+        <div class="property-label">
+            <span>${label}</span>
+            <span class="property-value">${value.toFixed(2)}</span>
+        </div>
+        <input type="range" min="${min}" max="${max}" step="${step}" value="${value}">
+    `;
+
+    const input = row.querySelector('input');
+    const valueDisplay = row.querySelector('.property-value');
+
+    input.addEventListener('input', (e) => {
+        const newValue = parseFloat(e.target.value);
+        valueDisplay.textContent = newValue.toFixed(2);
+        onChange(newValue);
+    });
+
+    editorProperties.appendChild(row);
+}
+
+/**
+ * Update material after editor changes
+ */
+function updateMaterialFromEditor(materialId) {
+    const matDef = materialLibrary.get(materialId);
+    if (!matDef) return;
+
+    // Recreate the procedural material with updated params
+    if (materialId === selectedMaterialId) {
+        currentProceduralMaterial = new ProceduralMaterial(matDef);
+        voxelWorld.setProceduralMaterial(currentProceduralMaterial);
+
+        // Update preview
+        // activeMaterialPreview removed - was for bottom-right materials button = getSwatchPreviewStyle(matDef);
+    }
+
+    // Update swatch preview
+    const swatch = document.querySelector(`.material-swatch[data-material-id="${materialId}"]`);
+    if (swatch) {
+        const preview = swatch.querySelector('.swatch-preview');
+        if (preview) {
+            preview.style.background = getSwatchPreviewStyle(matDef);
+        }
+    }
+}
+
+/**
+ * Open material editor for new system materials
+ */
+function openMaterialEditorNew(inventoryId) {
+    const material = materialManager.getMaterial(inventoryId);
+    if (!material) return;
+
+    editorMaterialName.textContent = material.name;
+    editorProperties.innerHTML = '';
+
+    // Base properties section
+    const baseHeader = document.createElement('div');
+    baseHeader.className = 'editor-section-header';
+    baseHeader.textContent = 'BASE PROPERTIES';
+    editorProperties.appendChild(baseHeader);
+
+    // Color
+    addColorProperty('Color', material.base.color, (value) => {
+        material.setColor(value);
+        materialManager.refreshMaterialVoxels(inventoryId);
+        updateSwatchPreview(inventoryId);
+    });
+
+    // Roughness
+    addSliderProperty('Roughness', material.base.roughness, 0, 1, 0.05, (value) => {
+        material.setRoughness(value);
+        materialManager.refreshMaterialVoxels(inventoryId);
+    });
+
+    // Metalness
+    addSliderProperty('Metalness', material.base.metalness, 0, 1, 0.05, (value) => {
+        material.setMetalness(value);
+        materialManager.refreshMaterialVoxels(inventoryId);
+    });
+
+    // Clearcoat
+    addSliderProperty('Clearcoat', material.base.clearcoat, 0, 1, 0.05, (value) => {
+        material.setClearcoat(value);
+        materialManager.refreshMaterialVoxels(inventoryId);
+    });
+
+    // Layers section (if has layers)
+    if (material.layers.length > 0) {
+        const layerHeader = document.createElement('div');
+        layerHeader.className = 'editor-section-header';
+        layerHeader.textContent = 'PATTERN LAYERS';
+        editorProperties.appendChild(layerHeader);
+
+        material.layers.forEach((layer, index) => {
+            const layerDiv = document.createElement('div');
+            layerDiv.className = 'layer-editor';
+
+            const typeDef = LayerTypeDefinitions[layer.type];
+            if (!typeDef) return;
+
+            const layerTitle = document.createElement('div');
+            layerTitle.className = 'layer-title';
+            layerTitle.textContent = typeDef.name;
+            layerDiv.appendChild(layerTitle);
+
+            // Layer params
+            for (const [paramKey, paramDef] of Object.entries(typeDef.params)) {
+                const value = layer.params[paramKey];
+
+                if (paramDef.type === 'color') {
+                    addLayerColorProperty(layerDiv, paramDef.label, value, (newValue) => {
+                        material.setLayerParam(index, paramKey, newValue);
+                        materialManager.refreshMaterialVoxels(inventoryId);
+                    });
+                } else if (paramDef.type === 'range') {
+                    addLayerSliderProperty(layerDiv, paramDef.label, value, paramDef.min, paramDef.max, paramDef.step, (newValue) => {
+                        material.setLayerParam(index, paramKey, newValue);
+                        materialManager.refreshMaterialVoxels(inventoryId);
+                    });
+                }
+            }
+
+            // Layer opacity
+            addLayerSliderProperty(layerDiv, 'Opacity', layer.opacity, 0, 1, 0.05, (newValue) => {
+                material.setLayerOpacity(index, newValue);
+                materialManager.refreshMaterialVoxels(inventoryId);
+            });
+
+            editorProperties.appendChild(layerDiv);
+        });
+    }
+
+    materialEditor.style.display = 'block';
+}
+
+/**
+ * Add color property to a layer editor
+ */
+function addLayerColorProperty(container, label, value, onChange) {
+    const row = document.createElement('div');
+    row.className = 'property-row';
+    row.innerHTML = `
+        <div class="property-label"><span>${label}</span></div>
+        <input type="color" value="${value}">
+    `;
+
+    const input = row.querySelector('input');
+    input.addEventListener('input', (e) => onChange(e.target.value));
+
+    container.appendChild(row);
+}
+
+/**
+ * Add slider property to a layer editor
+ */
+function addLayerSliderProperty(container, label, value, min, max, step, onChange) {
+    const row = document.createElement('div');
+    row.className = 'property-row';
+    row.innerHTML = `
+        <div class="property-label">
+            <span>${label}</span>
+            <span class="property-value">${value.toFixed(2)}</span>
+        </div>
+        <input type="range" min="${min}" max="${max}" step="${step}" value="${value}">
+    `;
+
+    const input = row.querySelector('input');
+    const valueDisplay = row.querySelector('.property-value');
+
+    input.addEventListener('input', (e) => {
+        const newValue = parseFloat(e.target.value);
+        valueDisplay.textContent = newValue.toFixed(2);
+        onChange(newValue);
+    });
+
+    container.appendChild(row);
+}
+
+/**
+ * Update swatch preview after material edit
+ */
+function updateSwatchPreview(inventoryId) {
+    const material = materialManager.getMaterial(inventoryId);
+    if (!material) return;
+
+    const swatch = document.querySelector(`.material-swatch[data-material-id="${inventoryId}"]`);
+    if (swatch) {
+        const preview = swatch.querySelector('.swatch-preview');
+        if (preview) {
+            preview.style.background = material.getPreviewColor();
+        }
+    }
+
+    // Update active preview if this is the selected material
+    if (inventoryId === materialManager.buildMaterialId) {
+        // activeMaterialPreview removed - was for bottom-right materials button = material.getPreviewColor();
+        paintColorIndicator.style.background = material.getPreviewColor();
+    }
+}
+
+// Initialize materials panel
+populateMaterialSwatches();
+
+// Select the initial material from inventory
+// Find solid-gray in the inventory
+const initialInventory = materialManager.getInventory();
+const grayMaterial = initialInventory.find(m => m.definitionId === 'solid-gray');
+if (grayMaterial) {
+    selectMaterial(grayMaterial.instanceId);
+} else if (initialInventory.length > 0) {
+    selectMaterial(initialInventory[0].instanceId);
+}
+
+// Set initial tool to Build
+setTool('build');
 
 function handleFlyControls() {
     if (keysPressed['Space']) {
@@ -1108,7 +2802,7 @@ const dimTop = document.getElementById('dimTop');
 const dimBottom = document.getElementById('dimBottom');
 const dimLeft = document.getElementById('dimLeft');
 const dimRight = document.getElementById('dimRight');
-const handleTop = document.getElementById('handleTop');
+const handleBottom = document.getElementById('handleBottom');
 const handleRight = document.getElementById('handleRight');
 
 // Gallery elements
@@ -1466,9 +3160,9 @@ function onResizeMove(e) {
     const maxHeight = Math.min(centerY - 40, window.innerHeight - centerY - 100) * 2;
 
     // Mirrored resize from center
-    if (resizeHandle === 'top') {
-        // Top handle: adjust height symmetrically (drag up = taller)
-        height -= dy * 2;
+    if (resizeHandle === 'bottom') {
+        // Bottom handle: adjust height symmetrically (drag down = taller)
+        height += dy * 2;
     } else if (resizeHandle === 'right') {
         // Right handle: adjust width symmetrically (drag right = wider)
         width += dx * 2;
@@ -1534,9 +3228,9 @@ function updateCaptureFrame() {
     frameBorder.style.width = bounds.width + 'px';
     frameBorder.style.height = bounds.height + 'px';
 
-    // Position resize handles at top-center and right-center
-    handleTop.style.left = (bounds.left + bounds.width / 2) + 'px';
-    handleTop.style.top = bounds.top + 'px';
+    // Position resize handles at bottom-center and right-center
+    handleBottom.style.left = (bounds.left + bounds.width / 2) + 'px';
+    handleBottom.style.top = bounds.bottom + 'px';
     handleRight.style.left = bounds.right + 'px';
     handleRight.style.top = (bounds.top + bounds.height / 2) + 'px';
 
@@ -2252,14 +3946,21 @@ function performSave() {
 
     const data = voxelWorld.serialize();
 
-    // Add metadata
+    // Add metadata - include new material system data
     const saveData = {
-        version: '1.1',
+        version: '2.1',
         name: filename,
         createdAt: new Date().toISOString(),
         mirrorEnabled: voxelWorld.mirrorEnabled,
         mirrorAxis: voxelWorld.mirrorAxis,
         gameItems: gameItemManager.serialize(),
+        // Voxel models
+        models: modelManager.serialize(),
+        // New material system
+        materials: materialManager.serialize(),
+        // Legacy support
+        selectedMaterial: selectedMaterialId,
+        materialDefinition: materialLibrary.get(selectedMaterialId) || null,
         ...data
     };
 
@@ -2311,6 +4012,38 @@ function showSaveConfirmation(filename) {
 }
 
 /**
+ * Restore per-voxel materials after loading a model
+ * Now uses the new MaterialManager system
+ */
+function restoreVoxelMaterials(loadedData = null) {
+    // If we have new-format material data, load it first
+    if (loadedData && loadedData.materials) {
+        materialManager.deserialize(loadedData.materials);
+        populateMaterialSwatches();
+    }
+
+    // Use MaterialManager to restore voxel materials
+    materialManager.restoreVoxelMaterials();
+
+    // Legacy fallback for old save files
+    for (const voxel of voxelWorld.voxels.values()) {
+        if (voxel.materialId && !materialManager.getMaterial(voxel.materialId)) {
+            // Old-style definition ID - try to migrate
+            const matDef = materialLibrary.get(voxel.materialId);
+            if (matDef) {
+                // Create legacy ProceduralMaterial
+                voxel.material = new ProceduralMaterial(matDef);
+                const key = voxel.getKey();
+                const mesh = voxelWorld.meshes.get(key);
+                if (mesh) {
+                    mesh.material = voxel.material.material;
+                }
+            }
+        }
+    }
+}
+
+/**
  * Load model from a .json file
  */
 function loadModel() {
@@ -2340,7 +4073,7 @@ function loadModel() {
                     voxelWorld.mirrorEnabled = true;
                     voxelWorld.mirrorAxis = data.mirrorAxis || 'x';
                     voxelWorld.setMirrorPlaneVisible(true);
-                    voxelWorld.rebuildAllMirrors();
+                    voxelWorld.updateAllMirrors();
                 }
 
                 // Load game items if present
@@ -2349,6 +4082,25 @@ function loadModel() {
                     updateGameItemsUI();
                     selectGameItem(null); // Clear selection
                 }
+
+                // Load voxel models if present
+                if (data.models && Array.isArray(data.models)) {
+                    modelManager.deserialize(data.models);
+                    // Clear any model selection/editing state
+                    if (isEditingModel) {
+                        exitModelEdit();
+                    }
+                    transformControls.detach();
+                    modelManager.clearSelection();
+                }
+
+                // Restore material selection if present
+                if (data.selectedMaterial && materialLibrary.get(data.selectedMaterial)) {
+                    selectMaterial(data.selectedMaterial);
+                }
+
+                // Restore per-voxel materials (pass the full data for new format)
+                restoreVoxelMaterials(data);
 
                 // Reposition camera to frame the model
                 repositionCameraToModel();

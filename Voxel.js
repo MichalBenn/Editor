@@ -140,6 +140,22 @@ export class Voxel {
     }
 
     /**
+     * Check if this voxel is a full cube (all corners at identity positions)
+     * A partial voxel has at least one corner that's been moved from its identity position
+     */
+    isFullCube() {
+        const epsilon = 0.001;
+        for (let i = 0; i < 8; i++) {
+            for (let a = 0; a < 3; a++) {
+                if (Math.abs(this.corners[i][a] - IDENTITY_CORNERS[i][a]) > epsilon) {
+                    return false;
+                }
+            }
+        }
+        return true;
+    }
+
+    /**
      * Get face vertices (4 corners of a face)
      */
     getFaceVertices(face) {
@@ -616,7 +632,8 @@ export class Voxel {
             z: this.z,
             corners: this.corners.map(c => [...c]),
             materials: [...this.faceMaterials],
-            flipped: [...this.faceFlipped]
+            flipped: [...this.faceFlipped],
+            materialId: this.materialId || null // Whole-voxel material ID
         };
     }
 
@@ -630,6 +647,9 @@ export class Voxel {
         }
         if (data.flipped) {
             voxel.faceFlipped = [...data.flipped];
+        }
+        if (data.materialId) {
+            voxel.materialId = data.materialId;
         }
         voxel.updateFlags();
         return voxel;
